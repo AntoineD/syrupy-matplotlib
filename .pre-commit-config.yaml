@@ -1,0 +1,33 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+        exclude: LICENSES/headers
+      - id: check-added-large-files
+      - id: check-toml
+      - id: destroyed-symlinks
+      - id: check-symlinks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff-check
+        types_or: [python, pyi, jupyter]
+        args: [--exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # - repo: https://github.com/myint/docformatter
+  #   rev: v1.7.5
+  #   hooks:
+  #     - id: docformatter
+  #       args: [
+  #         --in-place,
+  #         --black,
+  #       ]
+
+  - repo: https://github.com/rvben/rumdl-pre-commit
+    rev: v0.1.89
+    hooks:
+      - id: rumdl-fmt

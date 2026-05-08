@@ -1,0 +1,145 @@
+/* syrupy-matplotlib report styles — self-contained, no CDN */
+:root {
+  --color-pass: #28a745;
+  --color-fail: #dc3545;
+  --color-skip: #ffc107;
+  --color-missing: #fd7e14;
+  --color-bg: #f8f9fa;
+  --color-border: #dee2e6;
+  --font: system-ui, -apple-system, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  font-family: var(--font);
+  margin: 0;
+  background: var(--color-bg);
+  color: #212529;
+}
+
+header {
+  background: #343a40;
+  color: #fff;
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+header h1 { margin: 0; font-size: 1.4rem; }
+
+.summary-bar {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.75rem 2rem;
+  background: #fff;
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.summary-item { font-size: 0.9rem; }
+.summary-item strong { font-size: 1.1rem; }
+
+.controls {
+  padding: 0.75rem 2rem;
+  background: #fff;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.controls label { font-size: 0.85rem; }
+
+main { padding: 1.5rem 2rem; }
+
+.card {
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 0.6rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.card-header:hover { background: var(--color-bg); }
+
+.test-name {
+  font-family: monospace;
+  font-size: 0.85rem;
+  flex: 1;
+  word-break: break-all;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.2em 0.55em;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  text-transform: uppercase;
+}
+
+.badge-passed  { background: var(--color-pass); }
+.badge-failed  { background: var(--color-fail); }
+.badge-skipped { background: var(--color-skip); color: #212529; }
+.badge-missing { background: var(--color-missing); }
+.badge-diff    { background: var(--color-fail); }
+.badge-match   { background: var(--color-pass); }
+
+.card-body {
+  padding: 1rem;
+  border-top: 1px solid var(--color-border);
+  display: none;
+}
+
+.card-body.open { display: block; }
+
+.images {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.img-block {
+  flex: 1;
+  min-width: 200px;
+  text-align: center;
+}
+
+.img-block img {
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+.img-block figcaption {
+  font-size: 0.75rem;
+  color: #6c757d;
+  margin-top: 0.25rem;
+}
+
+.meta {
+  font-size: 0.8rem;
+  font-family: monospace;
+  background: var(--color-bg);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.hidden { display: none !important; }

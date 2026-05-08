@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "syrupy-matplotlib"
+dynamic = ["version"]
+description = "Pytest plugin for matplotlib figure comparison"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Antoine DECHAUME" }]
+requires-python = ">=3.10"
+keywords = ["pytest", "matplotlib", "snapshot", "syrupy", "image", "testing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Matplotlib",
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+dependencies = [
+    "jinja2>=3",
+    "matplotlib>=3.4",
+    "pytest>=7",
+    "syrupy>=5.1,<6",
+]
+
+[project.urls]
+Homepage = "https://github.com/AntoineD/syrupy-matplotlib"
+Source = "https://github.com/AntoineD/syrupy-matplotlib"
+Issues = "https://github.com/AntoineD/syrupy-matplotlib/issues"
+Changelog = "https://github.com/AntoineD/syrupy-matplotlib/blob/main/CHANGELOG.md"
+
+[project.entry-points.pytest11]
+syrupy-matplotlib = "syrupy_matplotlib._plugin"
+
+[dependency-groups]
+dev = [
+    "covdefaults>=2",
+    "pytest-cov>=7",
+    "pytest-xdist>=3",
+    "pytest-sugar>=1",
+    "prek>=0.3",
+    "ruff>=0.9",
+    "ty>=0.0.34",
+]
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/syrupy_matplotlib"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/syrupy_matplotlib",
+    "tests",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "pyproject.toml",
+    ".justfile",
+    "uv.lock",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--runpytest=subprocess"]
+
+[tool.ty.environment]
+python-version = "3.10"
+
+[tool.ty.src]
+include = ["src/syrupy_matplotlib/**/*.py"]

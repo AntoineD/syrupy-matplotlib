@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>syrupy-matplotlib report</title>
+<style>
+body { font-family: system-ui, sans-serif; margin: 2rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
+th { background: #f0f0f0; }
+.passed { color: green; }
+.failed { color: red; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>syrupy-matplotlib</h1>
+<p>{{ summary.total }} tests — {{ summary.passed }} passed, {{ summary.failed }} failed</p>
+<table>
+<thead>
+  <tr>
+    <th>Test</th>
+    <th>Status</th>
+    <th>Image</th>
+    <th>RMS</th>
+    <th>Message</th>
+  </tr>
+</thead>
+<tbody>
+{% for record in records %}
+{% set verdict = 'passed' if record.passed else 'failed' %}
+<tr>
+  <td><code>{{ record.test_name }}</code></td>
+  <td class="{{ verdict }}">{{ verdict }}</td>
+  <td>{{ record.image_status or '' }}</td>
+  <td>{{ "%.3f"|format(record.rms) if record.rms is not none else '' }}</td>
+  <td>{{ record.error_message or '' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</body>
+</html>

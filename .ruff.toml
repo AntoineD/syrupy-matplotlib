@@ -1,0 +1,74 @@
+fix = true
+unsafe-fixes = true
+preview = true
+target-version = "py310"
+src = ["src"]
+
+[lint]
+future-annotations = true
+task-tags = ["TODO"]
+ignore = ["ANN401"]
+
+select = [
+    "A",
+    "ANN",
+    "ASYNC",
+    "B",
+    "BLE",
+    "C",
+    "C4",
+    "D",
+    "DOC",
+    "E",
+    "EM",
+    "F",
+    "FA",
+    #    "FBT",
+    "FLY",
+    "FURB",
+    "G",
+    "I",
+    "ISC",
+    "INP",
+    "LOG",
+    "Q",
+    "N",
+    "NPY",
+    #    "PL",
+    #    "PD",
+    "PT",
+    "PIE",
+    "PGH",
+    "PTH",
+    "PYI",
+    "PERF",
+    "RET",
+    "RSE",
+    "RUF",
+    "S",
+    "SIM",
+    #    "SLF",
+    "SLOT",
+    "T",
+    "T10",
+    "T20",
+    "TCH",
+    "TRY",
+    "W",
+    "UP",
+    "YTT",
+]
+
+[lint.isort]
+force-single-line = true
+required-imports = ["from __future__ import annotations"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.per-file-ignores]
+"tests/*" = ["ANN001", "ANN201", "ANN202", "D", "DOC", "INP001", "RUF069", "S"]
+
+[format]
+docstring-code-format = true
+docstring-code-line-length = 75

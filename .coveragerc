@@ -1,0 +1,16 @@
+[run]
+parallel = true
+plugins = covdefaults
+data_file = ${PWD}/.coverage
+source_pkgs =
+    syrupy_matplotlib
+omit =
+    /tmp/*
+
+[paths]
+source =
+    src/syrupy_matplotlib
+    */site-packages/syrupy_matplotlib
+
+[report]
+skip_covered = false

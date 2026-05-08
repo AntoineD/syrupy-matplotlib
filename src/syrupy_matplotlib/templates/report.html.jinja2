@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>syrupy-matplotlib report</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+  <h1>syrupy-matplotlib</h1>
+  <span>{{ summary.total }} tests</span>
+</header>
+
+<div class="summary-bar">
+  <div class="summary-item">
+    <strong style="color:var(--color-pass)">{{ summary.passed }}</strong> passed
+  </div>
+  <div class="summary-item">
+    <strong style="color:var(--color-fail)">{{ summary.failed }}</strong> failed
+  </div>
+</div>
+
+<div class="controls">
+  <label>
+    Filter:
+    <select id="filter-status" onchange="applyFilters()">
+      <option value="">All</option>
+      <option value="failed">Failed</option>
+      <option value="passed">Passed</option>
+    </select>
+  </label>
+  <label>
+    <input type="checkbox" id="expand-all" onchange="toggleAll(this.checked)">
+    Expand all
+  </label>
+</div>
+
+<main id="cards">
+{% for record in records %}
+{% set verdict = 'passed' if record.passed else 'failed' %}
+<div class="card" data-status="{{ verdict }}">
+  <div class="card-header" onclick="toggle(this)">
+    <span class="badge badge-{{ verdict }}">{{ verdict }}</span>
+    {% if record.image_status %}
+    <span class="badge badge-{{ record.image_status }}" title="image">I</span>
+    {% endif %}
+    <span class="test-name">{{ record.test_name }}</span>
+    {% if record.rms is not none %}
+    <span title="RMS">{{ "%.3f"|format(record.rms) }}</span>
+    {% endif %}
+  </div>
+
+  <div class="card-body">
+    {% if record.result_image or record.baseline_image or record.diff_image %}
+    <div class="images">
+      {% if record.baseline_image %}
+      <figure class="img-block">
+        <img src="{{ record.baseline_image }}" alt="baseline" loading="lazy">
+        <figcaption>Baseline</figcaption>
+      </figure>
+      {% endif %}
+      {% if record.diff_image %}
+      <figure class="img-block">
+        <img src="{{ record.diff_image }}" alt="diff" loading="lazy">
+        <figcaption>Diff (10×)</figcaption>
+      </figure>
+      {% endif %}
+      {% if record.result_image %}
+      <figure class="img-block">
+        <img src="{{ record.result_image }}" alt="result" loading="lazy">
+        <figcaption>Result</figcaption>
+      </figure>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="meta">
+{%- if record.error_message %}{{ record.error_message }}
+{% endif -%}
+{%- if record.rms is not none %}RMS: {{ "%.4f"|format(record.rms) }}  tolerance: {{ record.tolerance }}
+{% endif -%}
+    </div>
+  </div>
+</div>
+{% endfor %}
+</main>
+
+<script>
+function toggle(header) {
+  header.nextElementSibling.classList.toggle('open');
+}
+function toggleAll(open) {
+  document.querySelectorAll('.card-body').forEach(b => b.classList.toggle('open', open));
+}
+function applyFilters() {
+  const status = document.getElementById('filter-status').value;
+  document.querySelectorAll('.card').forEach(card => {
+    const match = !status || card.dataset.status === status;
+    card.classList.toggle('hidden', !match);
+  });
+}
+</script>
+</body>
+</html>
