@@ -18,17 +18,15 @@ from matplotlib.testing import set_reproducibility_for_testing
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-_TESTING_HELPERS_APPLIED = False
-
 
 @contextlib.contextmanager
 def deterministic_context(backend: str) -> Generator[None, None, None]:
     """Set up a fully deterministic matplotlib environment for one test.
 
-    Calls `matplotlib.testing` helpers which handle font settings (DejaVu
-    Sans, no hinting) and SVG reproducibility (`svg.hashsalt`); they only
-    fire once per process because they mutate process-global rcParams that
-    no style context reverts. Also sets `SOURCE_DATE_EPOCH=0` (consumed by
+    Calls `matplotlib.testing` helpers every test so font settings (DejaVu
+    Sans, no hinting) and SVG reproducibility (`svg.hashsalt`) survive any
+    rcParam reset performed by an enclosing `plt.style.context(...,
+    after_reset=True)`. Also sets `SOURCE_DATE_EPOCH=0` (consumed by
     matplotlib's PDF/EPS writers and by other libraries that observe it),
     restoring the previous value — or removing the variable — in the
     `finally` block. The matplotlib backend is switched for the duration
@@ -41,17 +39,13 @@ def deterministic_context(backend: str) -> Generator[None, None, None]:
     Yields:
         Nothing; the caller yields inside this context to run the test.
     """
-    global _TESTING_HELPERS_APPLIED
-
     prev_backend = matplotlib.get_backend()
     prev_epoch = os.environ.get("SOURCE_DATE_EPOCH")
 
     try:
         matplotlib.use(backend)
-        if not _TESTING_HELPERS_APPLIED:
-            set_font_settings_for_testing()
-            set_reproducibility_for_testing()
-            _TESTING_HELPERS_APPLIED = True
+        set_font_settings_for_testing()
+        set_reproducibility_for_testing()
         os.environ["SOURCE_DATE_EPOCH"] = "0"
         yield
     finally:

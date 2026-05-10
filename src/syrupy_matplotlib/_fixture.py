@@ -68,8 +68,8 @@ def snapshot_matplotlib(
     params = SnapshotParams.from_config(plugin.config)
 
     with (
-        deterministic_context(params.backend),
         plt.style.context(params.style, after_reset=True),
+        deterministic_context(params.backend),
     ):
         baseline_fig_nums = set(Gcf.figs)
         assertion = MplSnapshotAssertion(
