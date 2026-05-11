@@ -105,6 +105,10 @@ def test_views(snapshot_matplotlib):
     assert fig3 == snapshot_matplotlib(name="zoomed")
 ```
 
+In a non-parametrized test, the first auto-indexed baseline has no suffix
+(`test_views.png`); subsequent ones start at `.1` (`test_views.1.png`,
+`test_views.2.png`, ...).
+
 ## Per-call overrides
 
 `snapshot_matplotlib(...)` accepts overrides that apply to one assertion only:
