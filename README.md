@@ -123,6 +123,17 @@ def test_loose(snapshot_matplotlib):
     )
 ```
 
+When the plotting code doesn't return the figure (e.g. a library that
+calls `plt.plot` internally), grab the current figure with `plt.gcf()`
+to apply per-call overrides — auto mode skips figures already asserted
+explicitly:
+
+```python
+def test_lib_plot(snapshot_matplotlib):
+    some_lib_that_plots()
+    assert plt.gcf() == snapshot_matplotlib(tolerance=5.0)
+```
+
 Test-scoped defaults (`style`, `backend`) come from INI; override them
 globally with a wrapper fixture in `conftest.py` if needed.
 
