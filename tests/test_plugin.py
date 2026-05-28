@@ -337,6 +337,23 @@ def test_summary_update_verbose_lists(pytester: pytest.Pytester) -> None:
     ])
 
 
+def test_summary_update_unchanged_not_relabeled_created(
+    pytester: pytest.Pytester,
+) -> None:
+    """Re-running `--snapshot-update` on unchanged baselines reports OK, not created.
+
+    The first update writes the baseline (`1 created`). A second update with an
+    identical, deterministically-rendered figure must report the untouched
+    baseline as OK — counting it as "created" again would be misleading.
+    """
+    pytester.makepyfile(test_plots=SIMPLE_TEST)
+    pytester.runpytest("--snapshot-update").stdout.fnmatch_lines(["Images: 1 created"])
+
+    result = pytester.runpytest("--snapshot-update")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["Images: 1 OK, 0 failed"])
+
+
 def test_summary_hidden_when_no_records(pytester: pytest.Pytester) -> None:
     """No snapshot_matplotlib tests -> no summary block."""
     pytester.makepyfile(
