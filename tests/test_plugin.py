@@ -134,6 +134,42 @@ def test_per_call_tolerance(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
+def test_per_call_override_does_not_persist(pytester: pytest.Pytester) -> None:
+    """A per-call override applies to one assertion only; the next reverts to default.
+
+    The first assertion passes a changed figure under a huge tolerance; the
+    second (bare) assertion must fail on the same change at the default
+    tolerance. If the override leaked, the second assertion would pass too and
+    the test would report ``passed=1`` instead of ``failed=1``.
+    """
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            import matplotlib.pyplot as plt
+
+            def test_two(snapshot_matplotlib):
+                f1, a1 = plt.subplots(); a1.plot([1, 2, 3])
+                assert f1 == snapshot_matplotlib
+                f2, a2 = plt.subplots(); a2.plot([1, 2, 3])
+                assert f2 == snapshot_matplotlib
+        """)
+    )
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=1)
+
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            import matplotlib.pyplot as plt
+
+            def test_two(snapshot_matplotlib):
+                f1, a1 = plt.subplots(); a1.plot([3, 2, 1])
+                assert f1 == snapshot_matplotlib(tolerance=1000)
+                f2, a2 = plt.subplots(); a2.plot([3, 2, 1])
+                assert f2 == snapshot_matplotlib
+        """)
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(failed=1)
+
+
 def test_unknown_policy_kwarg_rejected(pytester: pytest.Pytester) -> None:
     """Removed `policy=` kwarg raises a TypeError at call time."""
     pytester.makepyfile(
