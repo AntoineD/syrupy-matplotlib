@@ -135,9 +135,23 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         )
 
         if self._mpl_update_snapshots:
-            # `serialize()` already recorded the GENERATED result; don't double-count.
             self._mpl_last_failure_message = None
-            return test_bytes == baseline_bytes
+            unchanged = test_bytes == baseline_bytes
+            # `serialize()` optimistically recorded a GENERATED result — the
+            # only signal available for a brand-new baseline, where syrupy
+            # never calls `matches()`. When a baseline already exists we know
+            # more: an unchanged figure is a MATCH, not a creation. Overwrite
+            # the record so re-running `--snapshot-update` doesn't report
+            # untouched baselines as "created". A changed figure keeps the
+            # GENERATED record, since its baseline is genuinely being rewritten.
+            if unchanged:
+                self._record(
+                    stem,
+                    ImageResult(
+                        status=ImageMatchStatus.MATCH, tolerance=params.tolerance
+                    ),
+                )
+            return unchanged
 
         # Bytes-equality fast path: deterministic rendering means identical
         # figures produce identical PNG bytes, so we can short-circuit the
