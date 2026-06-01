@@ -135,10 +135,12 @@ def _print_comparison_summary(
     failed_images: list[str] = []
 
     for r in records:
+        # `image_status` is the enum's str value (or None); str-enum equality
+        # lets the member patterns match it directly, and None falls through.
         match r.image_status:
-            case ImageMatchStatus.MATCH.value:
+            case ImageMatchStatus.MATCH:
                 ok_images.append(r.test_name)
-            case ImageMatchStatus.GENERATED.value:
+            case ImageMatchStatus.GENERATED:
                 created_images.append(r.test_name)
             case _:
                 failed_images.append(r.test_name)
