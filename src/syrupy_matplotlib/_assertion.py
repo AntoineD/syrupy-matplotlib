@@ -159,6 +159,10 @@ class MplSnapshotAssertion(SnapshotAssertion):
 
         if success or self.update_snapshots or not isinstance(ext, MplFigureExtension):
             return success
+        # `_execution_results`, `_executions` and `recalled_data` are syrupy
+        # private API. The `syrupy>=5.1,<6` pin in pyproject.toml is therefore
+        # load-bearing for this missing-baseline detection; a major syrupy bump
+        # must re-validate it. `test_missing_baseline_fails` guards the path.
         latest = self._execution_results.get(self._executions - 1)
         if latest is None or latest.recalled_data is not None:
             return success
