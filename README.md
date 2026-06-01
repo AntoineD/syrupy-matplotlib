@@ -218,9 +218,11 @@ snapshot_matplotlib_savefig_kwargs = {}
 ```
 
 `snapshot_matplotlib_savefig_kwargs` accepts a JSON object whose keys are
-forwarded to `Figure.savefig()`. Per-call kwargs
-(`snapshot_matplotlib(remove_text=..., savefig_kwargs=...)`) override the
-INI defaults.
+forwarded to `Figure.savefig()`. A per-call
+`snapshot_matplotlib(savefig_kwargs=...)` **replaces** the INI dict wholesale
+rather than merging per key — pass every key you need, including any INI
+defaults you want to keep. Per-call `remove_text` / `tolerance` likewise
+override the INI defaults for that one assertion.
 
 CLI flags override INI options.
 
