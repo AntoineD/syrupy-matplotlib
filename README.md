@@ -203,6 +203,11 @@ baseline images are kept so the report can show pass cards as well, and
 the chosen `report.html` / `report-basic.html` / `results.json` files
 are written alongside (overriding the failed-only default).
 
+> **Note:** Combining a report flag with `--snapshot-update` writes the
+> report but **no images** — update mode regenerates baselines instead of
+> running comparisons, so there are no actual/baseline/diff artifacts to
+> embed. Run the report on a normal comparison run to get image cards.
+
 ## INI options
 
 The values shown below are the defaults applied when no option is set:
