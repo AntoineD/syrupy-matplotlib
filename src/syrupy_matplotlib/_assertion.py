@@ -18,6 +18,11 @@ from typing import Any
 
 from syrupy.assertion import SnapshotAssertion
 
+from ._extension import MplFigureExtension
+from ._reporting import ResultRecord
+from ._types import ImageMatchStatus
+from ._types import ImageResult
+
 if TYPE_CHECKING:
     from syrupy.extensions.base import AbstractSyrupyExtension
     from syrupy.location import PyTestLocation
@@ -140,11 +145,6 @@ class MplSnapshotAssertion(SnapshotAssertion):
         Returns:
             `True` on PASS (or update-mode write), `False` otherwise.
         """
-        from ._extension import MplFigureExtension
-        from ._reporting import ResultRecord
-        from ._types import ImageMatchStatus
-        from ._types import ImageResult
-
         ext = self.extension
         stem = ext.get_snapshot_name(test_location=self.test_location, index=self.index)
         if isinstance(ext, MplFigureExtension):  # pragma: no branch
