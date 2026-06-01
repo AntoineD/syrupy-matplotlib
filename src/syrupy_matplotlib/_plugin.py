@@ -268,13 +268,17 @@ class Plugin:
         Args:
             item: The pytest item being executed.
 
+        Returns:
+            The result produced by the wrapped `pytest_runtest_call` hook.
+
         Yields:
             Control to the inner hookimpls so the test body runs first.
         """
         from ._fixture import run_auto_assertions
 
-        yield
+        result = yield
         run_auto_assertions(item)
+        return result
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         """Initialise xdist state at session start.
