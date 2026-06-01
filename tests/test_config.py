@@ -68,6 +68,12 @@ def test_ini_tolerance(pytester: pytest.Pytester) -> None:
     assert cfg.tolerance == 5.5
 
 
+def test_ini_tolerance_invalid(pytester: pytest.Pytester) -> None:
+    pytester.makeini("[pytest]\nsnapshot_matplotlib_tolerance = loose\n")
+    with pytest.raises(ValueError, match="Invalid snapshot_matplotlib_tolerance"):
+        resolve_config(pytester.parseconfigure())
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

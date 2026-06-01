@@ -81,7 +81,9 @@ def resolve_config(config: pytest.Config) -> Config:
         A fully resolved, immutable `Config` instance.
 
     Raises:
-        ValueError: If `--snapshot-matplotlib-report` contains an unrecognised value.
+        ValueError: If `--snapshot-matplotlib-report` contains an unrecognised
+            value, if `snapshot_matplotlib_tolerance` is not a number, or if
+            `snapshot_matplotlib_savefig_kwargs` is not a JSON object.
     """
     report_raw: str = (
         config.getoption("--snapshot-matplotlib-report", default=None) or ""
@@ -97,7 +99,15 @@ def resolve_config(config: pytest.Config) -> Config:
         )
         raise ValueError(msg)
 
-    tolerance = float(config.getini("snapshot_matplotlib_tolerance"))
+    tolerance_raw = config.getini("snapshot_matplotlib_tolerance")
+    try:
+        tolerance = float(tolerance_raw)
+    except (TypeError, ValueError) as e:
+        msg = (
+            f"Invalid snapshot_matplotlib_tolerance value {tolerance_raw!r}. "
+            "Expected a number."
+        )
+        raise ValueError(msg) from e
     style = str(config.getini("snapshot_matplotlib_style"))
     backend = str(config.getini("snapshot_matplotlib_backend"))
 
