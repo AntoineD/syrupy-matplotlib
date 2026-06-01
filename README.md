@@ -316,6 +316,12 @@ fragments; the controller merges them at session end before generating
 reports. Syrupy's own unused-snapshot detection is limited under xdist with
 `--snapshot-update` — regenerate baselines without xdist when possible.
 
+Fragment merge and report generation read the worker-written files from a
+single `figure-report/` directory, so xdist support assumes a **shared (or
+local) filesystem** — the common single-host `-n auto` case. Distributed runs
+that place workers on separate filesystems (e.g. `--tx ssh=...`) won't surface
+their fragments or image artifacts to the controller.
+
 ## Custom fixture wrappers
 
 To set test-scoped defaults (e.g. a different tolerance for one package),
