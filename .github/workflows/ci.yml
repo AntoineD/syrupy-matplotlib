@@ -19,7 +19,9 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --all-extras --dev
-      - run: uv run ruff check .
+      # --no-fix: .ruff.toml sets `fix = true`, so a bare `ruff check` repairs
+      # the checkout in place and exits 0, hiding every fixable violation.
+      - run: uv run ruff check --no-fix .
       - run: uv run ruff format --check .
 
   type-check:

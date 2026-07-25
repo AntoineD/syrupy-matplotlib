@@ -7,7 +7,7 @@ src = ["src"]
 [lint]
 future-annotations = true
 task-tags = ["TODO"]
-ignore = ["ANN401"]
+ignore = ["any-type"]
 
 select = [
     "A",
@@ -67,7 +67,7 @@ required-imports = ["from __future__ import annotations"]
 convention = "google"
 
 [lint.per-file-ignores]
-"tests/*" = ["ANN001", "ANN201", "ANN202", "D", "DOC", "INP001", "RUF069", "S"]
+"tests/*" = ["missing-type-function-argument", "missing-return-type-undocumented-public-function", "missing-return-type-private-function", "D", "DOC", "implicit-namespace-package", "float-equality-comparison", "S"]
 
 [format]
 docstring-code-format = true
