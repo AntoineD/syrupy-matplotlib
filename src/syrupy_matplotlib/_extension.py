@@ -86,6 +86,10 @@ class MplFigureExtension(SingleFileSnapshotExtension):
     ) -> bytes:
         """Render a `Figure` to deterministic PNG bytes.
 
+        Under `remove_text`, *data* is mutated in place — `remove_ticks_and_titles`
+        strips the figure itself, not a copy, matching `image_comparison`. The
+        caller keeps a stripped figure after the assertion returns.
+
         Args:
             data: The operand passed to `==`. Must be a `matplotlib.figure.Figure`.
             exclude: Unused (syrupy signature).

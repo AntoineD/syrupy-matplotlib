@@ -134,6 +134,13 @@ def test_lib_plot(snapshot_matplotlib):
     assert plt.gcf() == snapshot_matplotlib(tolerance=5.0)
 ```
 
+> **`remove_text` mutates the figure.** It calls
+> `matplotlib.testing.decorators.remove_ticks_and_titles(fig)`, which strips
+> tick labels and titles from the figure object itself rather than from a copy
+> — the same thing `image_comparison` does. The figure stays stripped
+> afterwards, so a second assertion on it, or any inspection after the
+> assertion, sees the stripped version.
+
 Test-scoped defaults (`style`, `backend`) come from INI; override them
 globally with a wrapper fixture in `conftest.py` if needed.
 

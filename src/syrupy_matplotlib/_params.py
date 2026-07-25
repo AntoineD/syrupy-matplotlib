@@ -35,7 +35,8 @@ class SnapshotParams:
     """Matplotlib backend used for rendering."""
 
     remove_text: bool
-    """When `True`, strip tick labels and titles before serializing."""
+    """When `True`, strip tick labels and titles before serializing. Mutates the
+    figure in place, so it stays stripped after the assertion."""
 
     savefig_kwargs: dict[str, Any] = field(default_factory=dict)
     """Extra keyword arguments forwarded to `Figure.savefig()`."""
