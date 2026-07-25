@@ -14,7 +14,7 @@ test *args:
 # Test with minimum dependency versions
 [group('qa')]
 test-min-deps *args:
-    uv run --python 3.10 --with 'numpy==1.26' --resolution lowest-direct pytest {{args}}
+    uv run --isolated --python 3.10 --with 'numpy==1.26' --resolution lowest-direct pytest {{args}}
 
 # Run tests coverage
 [group('qa')]
