@@ -12,6 +12,7 @@ The plugin owns:
 from __future__ import annotations
 
 import contextlib
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -223,8 +224,6 @@ def _warn_if_png_ignored(config: pytest.Config) -> None:
     Args:
         config: The pytest `Config` object.
     """
-    import warnings
-
     exts = config.option.ignore_file_extensions or []
     if any(e.strip().lstrip(".").lower() == "png" for e in exts):
         warnings.warn(
