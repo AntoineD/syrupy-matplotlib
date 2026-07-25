@@ -18,6 +18,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Declared minimum pytest is now 8 (was 7), matching the floor `syrupy>=5.1`
+  already forces transitively. No resolution changes — pytest 7 was never
+  installable alongside this plugin.
+
 - Minimum supported matplotlib is now 3.5 (was 3.4). 3.5 is the first release
   with cp310 wheels, so the old floor was uninstallable on this project's own
   minimum Python without a C++ toolchain — `just test-min-deps` could never

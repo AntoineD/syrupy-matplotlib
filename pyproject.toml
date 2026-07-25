@@ -34,7 +34,9 @@ dependencies = [
     # source build under `requires-python = ">=3.10"`, so the floor cannot drop
     # below it without also dropping Python 3.10.
     "matplotlib>=3.5",
-    "pytest>=7",
+    # syrupy 5.1 already requires pytest>=8.0.0, so a lower floor here is
+    # unreachable — min-deps resolves 8.0.0 no matter what this says.
+    "pytest>=8",
     "syrupy>=5.1,<6",
 ]
 
