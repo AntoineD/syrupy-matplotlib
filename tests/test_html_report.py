@@ -91,6 +91,30 @@ def test_empty_collector_renders(tmp_path: Path, generator) -> None:
     assert out.read_text()
 
 
+@pytest.mark.parametrize(
+    "generator",
+    [generate_html_report, generate_basic_html_report],
+)
+def test_reports_escape_markup_in_records(tmp_path: Path, generator) -> None:
+    """Markup in test ids and messages is escaped, not injected.
+
+    Parametrize ids like ``test_plot[<lambda>]`` are routine; unescaped they
+    parse as HTML tags and vanish from the rendered report.
+    """
+    c = ResultCollector()
+    c.record(
+        ResultRecord(
+            test_name='test_plot[<lambda>-"x&y"]',
+            image_status=ImageMatchStatus.DIFF.value,
+            error_message='diff <b>bold</b> & "quoted"',
+        )
+    )
+    body = generator(c, tmp_path).read_text()
+    assert "<lambda>" not in body
+    assert "&lt;lambda&gt;" in body
+    assert "<b>bold</b>" not in body
+
+
 def test_failed_only_html_report_excludes_passes(tmp_path: Path) -> None:
     """`generate_failed_only_html_report` renders only failed records.
 
