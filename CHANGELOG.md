@@ -10,6 +10,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A whitespace-only `snapshot_matplotlib_auto` is treated as unset instead of
+  raising. Only reachable from `pyproject.toml`, which preserves whitespace
+  where `.ini` sources strip it.
+
+- Malformed `--snapshot-matplotlib-*` flags and `snapshot_matplotlib_*` INI
+  values now report as a pytest usage error rather than an `INTERNALERROR`
+  traceback.
+
+- `savefig_kwargs` setting `format` is rejected with a message naming the
+  option at fault, instead of colliding inside `Figure.savefig()` with
+  `TypeError: got multiple values for keyword argument 'format'`.
+
 - Support matplotlib 3.11. Its `set_font_settings_for_testing()` now sets
   `text.hinting = "default"` (was `"none"`) and no longer sets
   `text.hinting_factor`, which broke the determinism tests. Those tests now
@@ -17,6 +29,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its values, so they track matplotlib's choices across releases.
 
 ### Changed
+
+- JSON report summaries now satisfy `total == passed + failed`. Records
+  carried an optional `image_status` that three call sites classified
+  differently, so an unclassified record could be counted in `total` alone
+  while the terminal summary reported it as failed. The field is now
+  required — every record describes a comparison that ran.
 
 - Declared minimum pytest is now 8 (was 7), matching the floor `syrupy>=5.1`
   already forces transitively. No resolution changes — pytest 7 was never
