@@ -64,7 +64,7 @@ def snapshot_matplotlib(
     plugin = request.config.pluginmanager.get_plugin("syrupy_matplotlib_plugin")
     if not isinstance(plugin, Plugin):  # pragma: no cover
         msg = "syrupy_matplotlib_plugin not registered"
-        raise RuntimeError(msg)  # noqa: TRY004
+        raise RuntimeError(msg)  # ruff: ignore[type-check-without-type-error]
     params = SnapshotParams.from_config(plugin.config)
 
     with (
@@ -150,7 +150,7 @@ def run_auto_assertions(item: pytest.Item) -> None:
         ext = assertion.extension
         if not isinstance(ext, MplFigureExtension):  # pragma: no cover
             msg = f"unexpected extension type: {type(ext).__name__}"
-            raise RuntimeError(msg)  # noqa: TRY004
+            raise RuntimeError(msg)  # ruff: ignore[type-check-without-type-error]
         msg = ext._mpl_last_failure_message or "figure mismatch"
         failures.append(f"figure #{fig.number}: {msg}")
 

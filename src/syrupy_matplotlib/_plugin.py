@@ -251,7 +251,7 @@ class Plugin:
         """Args:
         config: Resolved plugin configuration.
         diff_dir: Directory where pixel-comparison artifacts are written.
-        """  # noqa: D205
+        """  # ruff: ignore[missing-blank-line-after-summary]
         self.config = config
         self.diff_dir = diff_dir
         self.collector = ResultCollector(results_root=diff_dir)

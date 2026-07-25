@@ -129,7 +129,7 @@ def resolve_config(config: pytest.Config) -> Config:
         raise ValueError(msg) from e
     if not isinstance(savefig_kwargs, dict):
         msg = "snapshot_matplotlib_savefig_kwargs must be a JSON object."
-        raise ValueError(msg)  # noqa: TRY004
+        raise ValueError(msg)  # ruff: ignore[type-check-without-type-error]
 
     return Config(
         report=report_types,

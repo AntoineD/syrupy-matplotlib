@@ -177,7 +177,7 @@ class ResultCollector:
         """Args:
         results_root: Root directory for result artifacts.  Pass `None`
             when no report directory is configured.
-        """  # noqa: D205
+        """  # ruff: ignore[missing-blank-line-after-summary]
         self._records = {}
         self.results_root = results_root
 

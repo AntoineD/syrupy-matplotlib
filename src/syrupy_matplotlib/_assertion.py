@@ -57,7 +57,7 @@ class MplSnapshotAssertion(SnapshotAssertion):
         auto: Initial value for the auto-discover / auto-assert /
             auto-close behavior. May be flipped per-test via
             ``snapshot_matplotlib(auto=...)``.
-        """  # noqa: D205
+        """  # ruff: ignore[missing-blank-line-after-summary]
         super().__init__(
             session=session,
             extension_class=extension_class,
