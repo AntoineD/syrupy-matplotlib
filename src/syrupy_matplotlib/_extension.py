@@ -65,7 +65,7 @@ class MplFigureExtension(SingleFileSnapshotExtension):
     When `False`, MATCH comparisons leave no files in `figure-report/`."""
 
     _mpl_nodeid: str | None = None
-    """Full pytest node id, used as the `ResultRecord` key."""
+    """Full pytest node id; the `ResultRecord` key is this plus `::<stem>`."""
 
     _mpl_test_filepath: str | None = None
     """Absolute path of the current test's source file; stamped by the assertion."""

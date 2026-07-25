@@ -27,7 +27,8 @@ class ResultRecord:
     """Complete result for one test item — immutable once handed to the collector."""
 
     test_name: str
-    """Full pytest node id."""
+    """Pytest node id plus `::<snapshot stem>` — one record per snapshot,
+    so a test asserting several figures yields several records."""
 
     image_status: str
     """`ImageMatchStatus` value. Every record describes a comparison that ran,
@@ -73,7 +74,7 @@ class ResultRecord:
         HTML reports can link to them portably.
 
         Args:
-            test_name: Full pytest node id.
+            test_name: Record key — pytest node id plus `::<snapshot stem>`.
             result: Immutable result from the comparison engine.
             results_root: Root directory for result artifacts, used to compute
                 relative paths.  Pass `None` to store absolute paths.
