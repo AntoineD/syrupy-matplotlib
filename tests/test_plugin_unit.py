@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from syrupy_matplotlib._extension import MplFigureExtension
 from syrupy_matplotlib._plugin import _format_category_line
 from syrupy_matplotlib._plugin import _remove_empty_subtree
+from syrupy_matplotlib._plugin import _sweep_stale_fragments
 from syrupy_matplotlib._plugin import pytest_unconfigure
 from syrupy_matplotlib._reporting import ResultCollector
 
@@ -62,6 +63,23 @@ def test_pytest_unconfigure_resets_extension_bindings(tmp_path: Path) -> None:
             MplFigureExtension._mpl_update_snapshots,
             MplFigureExtension._mpl_keep_match_artifacts,
         ) = saved
+
+
+def test_sweep_stale_fragments_removes_orphans_only(tmp_path: Path) -> None:
+    """Leftover fragment files go; everything else in the directory stays."""
+    (tmp_path / "_results-deadbeef-gw0.json").write_text("{}")
+    (tmp_path / "_results-deadbeef-gw1.json").write_text("{}")
+    keeper = tmp_path / "report.html"
+    keeper.write_text("kept")
+
+    _sweep_stale_fragments(tmp_path)
+
+    assert not list(tmp_path.glob("_results-*.json"))
+    assert keeper.exists()
+
+
+def test_sweep_stale_fragments_missing_dir_is_noop(tmp_path: Path) -> None:
+    _sweep_stale_fragments(tmp_path / "absent")
 
 
 def test_remove_empty_subtree_missing_root_is_noop(tmp_path: Path) -> None:

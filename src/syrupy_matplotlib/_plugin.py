@@ -316,6 +316,8 @@ class Plugin:
         if session.config.pluginmanager.hasplugin("xdist"):
             _xdist.setup_session(session.config)
             self._is_xdist_worker = _xdist._is_worker(session.config)
+        if not self._is_xdist_worker:
+            _sweep_stale_fragments(self.diff_dir)
 
     def pytest_sessionfinish(
         self,
@@ -423,6 +425,22 @@ class Plugin:
         """
         merged = _xdist.merge_worker_fragments(self.diff_dir, _xdist.get_uid(config))
         self.collector.merge_serialized(merged)
+
+
+def _sweep_stale_fragments(diff_dir: Path) -> None:
+    """Delete xdist result fragments a crashed earlier session left behind.
+
+    Fragments are merged and unlinked at session end; any still present at
+    session start are orphans from a controller that never finished. Left
+    alone they accumulate forever and keep `figure-report/` from being
+    pruned as empty.
+
+    Args:
+        diff_dir: The `figure-report/` directory to sweep.
+    """
+    for stale in diff_dir.glob("_results-*.json"):
+        with contextlib.suppress(OSError):
+            stale.unlink()
 
 
 def _remove_empty_subtree(root: Path) -> None:
