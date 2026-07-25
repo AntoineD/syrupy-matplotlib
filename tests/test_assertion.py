@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gc
 from unittest.mock import MagicMock
 
+import matplotlib.pyplot as plt
 import pytest
 
 from syrupy_matplotlib._assertion import MplSnapshotAssertion
@@ -87,6 +89,25 @@ def test_call_override_reverts_after_post_assert(pytester: pytest.Pytester) -> N
 
     snap._post_assert()
     assert snap._mpl_params.tolerance == 2.0
+
+
+def test_asserted_figs_entry_dies_with_the_figure(pytester: pytest.Pytester) -> None:
+    """Closed figures drop out of the asserted set.
+
+    With a plain `id()` set, a new figure allocated at a dead figure's
+    address would be treated as already asserted and silently skipped by
+    the auto path. Weak tracking removes the entry as soon as the figure
+    is garbage collected.
+    """
+    snap = _make_assertion(pytester)
+    fig = plt.figure()
+    snap._mpl_asserted_figs.add(fig)
+    assert fig in snap._mpl_asserted_figs
+
+    plt.close(fig)
+    del fig
+    gc.collect()
+    assert len(snap._mpl_asserted_figs) == 0
 
 
 def test_call_auto_override_persists_across_post_assert(

@@ -13,9 +13,11 @@ no generic passthrough. We subclass to:
 
 from __future__ import annotations
 
+import weakref
 from typing import TYPE_CHECKING
 from typing import Any
 
+from matplotlib.figure import Figure
 from syrupy.assertion import SnapshotAssertion
 
 from ._extension import MplFigureExtension
@@ -66,7 +68,9 @@ class MplSnapshotAssertion(SnapshotAssertion):
         )
         self._mpl_params: SnapshotParams = mpl_params
         self._mpl_auto: bool = auto
-        self._mpl_asserted_fig_ids: set[int] = set()
+        # Weak, so a closed figure's entry dies with it — a plain id() set
+        # would let a new figure reusing the address masquerade as asserted.
+        self._mpl_asserted_figs: weakref.WeakSet[Figure] = weakref.WeakSet()
 
     def __call__(  # ty: ignore[invalid-method-override]
         self,
@@ -153,7 +157,8 @@ class MplSnapshotAssertion(SnapshotAssertion):
             ext._mpl_test_filepath = self.test_location.filepath
             ext._mpl_last_stem = stem
             ext._mpl_last_failure_message = None
-        self._mpl_asserted_fig_ids.add(id(data))
+        if isinstance(data, Figure):
+            self._mpl_asserted_figs.add(data)
 
         success = super()._assert(data)
 

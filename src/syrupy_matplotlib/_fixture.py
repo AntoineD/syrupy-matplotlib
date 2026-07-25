@@ -143,7 +143,7 @@ def run_auto_assertions(item: pytest.Item) -> None:
 
     failures: list[str] = []
     for fig in collect_new_figures(baseline_fig_nums):
-        if id(fig) in assertion._mpl_asserted_fig_ids:
+        if fig in assertion._mpl_asserted_figs:
             continue
         if fig == assertion:
             continue
