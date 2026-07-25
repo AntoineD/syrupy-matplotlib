@@ -138,3 +138,16 @@ def test_savefig_kwargs_ini_not_object(pytester: pytest.Pytester) -> None:
     pytester.makeini("[pytest]\nsnapshot_matplotlib_savefig_kwargs = [1, 2, 3]\n")
     with pytest.raises(pytest.UsageError, match="must be a JSON object"):
         pytester.parseconfigure()
+
+
+def test_auto_whitespace_only_uses_default(pytester: pytest.Pytester) -> None:
+    """An all-whitespace value is unset, not a malformed boolean.
+
+    Written against `pyproject.toml` deliberately: configparser strips `.ini`
+    values, so only a TOML source can deliver whitespace to `getini()`.
+    """
+    pytester.makepyprojecttoml(
+        '[tool.pytest.ini_options]\nsnapshot_matplotlib_auto = "   "\n'
+    )
+    cfg = resolve_config(pytester.parseconfigure())
+    assert cfg.auto is True

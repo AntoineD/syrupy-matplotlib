@@ -111,7 +111,9 @@ def resolve_config(config: pytest.Config) -> Config:
     style = str(config.getini("snapshot_matplotlib_style"))
     backend = str(config.getini("snapshot_matplotlib_backend"))
 
-    auto_ini: str = config.getini("snapshot_matplotlib_auto") or ""
+    # Strip before the emptiness check: an all-whitespace value is "unset", not
+    # a malformed boolean, and must fall back to the default like "" does.
+    auto_ini: str = str(config.getini("snapshot_matplotlib_auto") or "").strip()
     auto = _parse_bool(auto_ini, "snapshot_matplotlib_auto") if auto_ini else True
 
     remove_text = _parse_bool(
