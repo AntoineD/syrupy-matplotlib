@@ -62,6 +62,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Pytest startup no longer pays for matplotlib. The plugin entry point
+  imported matplotlib and syrupy eagerly (~400 ms warm) on every pytest
+  run in an env with the plugin installed, figure tests or not; the heavy
+  modules now load on the first use of the `snapshot_matplotlib` fixture,
+  dropping entry-point import to ~3 ms.
+
+- Report mode no longer decodes byte-identical images. Every passing test
+  under `--snapshot-matplotlib-report` went through `compare_images`
+  (~8 ms of PNG decoding per comparison) even when the rendered bytes
+  matched the baseline exactly; identical bytes now short-circuit to a
+  MATCH while still writing the report artifacts.
+
 - JSON report summaries now satisfy `total == passed + failed`. Records
   carried an optional `image_status` that three call sites classified
   differently, so an unclassified record could be counted in `total` alone
