@@ -75,6 +75,23 @@ def test_invalid_report_type_reports_cleanly(pytester: pytest.Pytester) -> None:
     )
 
 
+def test_disabled_syrupy_is_a_usage_error(pytester: pytest.Pytester) -> None:
+    """`-p no:syrupy` yields a clean usage error, not an INTERNALERROR.
+
+    `pytest_configure` and the fixture read syrupy's options and session;
+    without the gate those lookups die as AttributeError tracebacks.
+    """
+    pytester.makepyfile(test_noop="def test_noop(): pass")
+    result = pytester.runpytest("-p", "no:syrupy")
+
+    assert result.ret != 0
+    result.stderr.fnmatch_lines(["*requires the syrupy pytest plugin*"])
+    assert not any(
+        "INTERNALERROR" in line
+        for line in result.outlines + result.errlines  # ty: ignore[unresolved-attribute]
+    )
+
+
 def test_ini_tolerance(pytester: pytest.Pytester) -> None:
     pytester.makeini("[pytest]\nsnapshot_matplotlib_tolerance = 5.5\n")
     config = pytester.parseconfigure()

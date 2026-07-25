@@ -95,9 +95,20 @@ def pytest_configure(config: pytest.Config) -> None:
         config: The pytest `Config` object.
 
     Raises:
-        pytest.UsageError: If any `--snapshot-matplotlib-*` flag or
-            `snapshot_matplotlib_*` INI value is malformed.
+        pytest.UsageError: If the syrupy plugin is not registered, or if any
+            `--snapshot-matplotlib-*` flag or `snapshot_matplotlib_*` INI
+            value is malformed.
     """
+    # Everything downstream reads syrupy's options (`update_snapshots`,
+    # `ignore_file_extensions`) and its session object; without the plugin
+    # those lookups surface as AttributeError INTERNALERROR tracebacks.
+    if not config.pluginmanager.hasplugin("syrupy"):
+        msg = (
+            "syrupy-matplotlib requires the syrupy pytest plugin, "
+            "which is not registered (disabled via -p no:syrupy?)."
+        )
+        raise pytest.UsageError(msg)
+
     # A bare `ValueError` escaping `pytest_configure` renders as a pluggy
     # INTERNALERROR traceback; `UsageError` gets pytest's one-line treatment,
     # which is what a typo'd flag deserves.
