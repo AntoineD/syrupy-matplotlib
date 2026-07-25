@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from syrupy_matplotlib._extension import MplFigureExtension
 from syrupy_matplotlib._plugin import _format_category_line
 from syrupy_matplotlib._plugin import _remove_empty_subtree
+from syrupy_matplotlib._plugin import pytest_unconfigure
+from syrupy_matplotlib._reporting import ResultCollector
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -25,6 +28,40 @@ def test_format_category_line_all_three_appends_created() -> None:
     """Mixed counts keep the classic line and append a ``, K created`` tail."""
     line = _format_category_line("Images", ok=["a"], created=["c"], failed=["b"])
     assert line == "Images: 1 OK, 1 failed, 1 created"
+
+
+def test_pytest_unconfigure_resets_extension_bindings(tmp_path: Path) -> None:
+    """Session-wide class bindings are cleared so they can't leak across runs.
+
+    The outer test session has live bindings on the class (this plugin is
+    active in the running suite), so they are saved and restored around the
+    check.
+    """
+    saved = (
+        MplFigureExtension._mpl_collector,
+        MplFigureExtension._mpl_rootpath,
+        MplFigureExtension._mpl_update_snapshots,
+        MplFigureExtension._mpl_keep_match_artifacts,
+    )
+    try:
+        MplFigureExtension._mpl_collector = ResultCollector()
+        MplFigureExtension._mpl_rootpath = tmp_path
+        MplFigureExtension._mpl_update_snapshots = True
+        MplFigureExtension._mpl_keep_match_artifacts = True
+
+        pytest_unconfigure(config=None)  # type: ignore[arg-type]
+
+        assert MplFigureExtension._mpl_collector is None
+        assert MplFigureExtension._mpl_rootpath is None
+        assert MplFigureExtension._mpl_update_snapshots is False
+        assert MplFigureExtension._mpl_keep_match_artifacts is False
+    finally:
+        (
+            MplFigureExtension._mpl_collector,
+            MplFigureExtension._mpl_rootpath,
+            MplFigureExtension._mpl_update_snapshots,
+            MplFigureExtension._mpl_keep_match_artifacts,
+        ) = saved
 
 
 def test_remove_empty_subtree_missing_root_is_noop(tmp_path: Path) -> None:

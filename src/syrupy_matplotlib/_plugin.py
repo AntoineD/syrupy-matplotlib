@@ -125,6 +125,22 @@ def pytest_configure(config: pytest.Config) -> None:
         )
 
 
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Reset the class-level extension bindings made in `pytest_configure`.
+
+    Without this, a later pytest session in the same process (repeated
+    `pytest.main()` calls, pytester's in-process runner) reads the previous
+    session's collector and rootpath.
+
+    Args:
+        config: The pytest `Config` object (unused).
+    """
+    MplFigureExtension._mpl_collector = None
+    MplFigureExtension._mpl_rootpath = None
+    MplFigureExtension._mpl_update_snapshots = False
+    MplFigureExtension._mpl_keep_match_artifacts = False
+
+
 def _print_comparison_summary(
     terminalreporter: Any,
     records: list[ResultRecord],
