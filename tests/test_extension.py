@@ -104,6 +104,26 @@ def test_serialize_update_snapshots_records_generated() -> None:
     assert coll.records[0].image_status == "generated"
 
 
+def test_serialize_update_failure_records_nothing() -> None:
+    """A savefig error in update mode must not leave a GENERATED record."""
+    coll = ResultCollector()
+    params = SnapshotParams(
+        tolerance=2.0,
+        style="classic",
+        backend="agg",
+        remove_text=False,
+        savefig_kwargs={"format": "pdf"},
+    )
+    ext = _fresh_extension(params=params, update_snapshots=True, collector=coll)
+    fig = plt.figure()
+    try:
+        with pytest.raises(ValueError, match="must not set 'format'"):
+            ext.serialize(fig)
+    finally:
+        plt.close(fig)
+    assert coll.records == []
+
+
 def test_matches_update_snapshots_diff_returns_false() -> None:
     """Update mode with a differing baseline returns False so syrupy rewrites.
 

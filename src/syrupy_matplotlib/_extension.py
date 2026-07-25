@@ -110,13 +110,18 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         if params.remove_text:
             remove_ticks_and_titles(fig)
 
+        png_bytes = save_figure_to_bytes(
+            fig, self.file_extension, params.savefig_kwargs
+        )
+
         # Update mode: ``matches()`` is not called for brand-new baselines
         # (syrupy writes the snapshot directly). Emit a "created" record
-        # here so the terminal summary can count it.
+        # here so the terminal summary can count it — after serialization,
+        # so a savefig failure isn't counted as a created baseline.
         if self._mpl_update_snapshots:
             self._record(stem, _GENERATED_RESULT)
 
-        return save_figure_to_bytes(fig, self.file_extension, params.savefig_kwargs)
+        return png_bytes
 
     def matches(self, *, serialized_data: Any, snapshot_data: Any) -> bool:
         """Run pixel comparison against the stored baseline.
