@@ -92,8 +92,18 @@ def pytest_configure(config: pytest.Config) -> None:
 
     Args:
         config: The pytest `Config` object.
+
+    Raises:
+        pytest.UsageError: If any `--snapshot-matplotlib-*` flag or
+            `snapshot_matplotlib_*` INI value is malformed.
     """
-    mpl_config = resolve_config(config)
+    # A bare `ValueError` escaping `pytest_configure` renders as a pluggy
+    # INTERNALERROR traceback; `UsageError` gets pytest's one-line treatment,
+    # which is what a typo'd flag deserves.
+    try:
+        mpl_config = resolve_config(config)
+    except ValueError as e:
+        raise pytest.UsageError(str(e)) from e
     diff_dir = Path(config.rootpath) / "figure-report"
 
     plugin = Plugin(config=mpl_config, diff_dir=diff_dir)

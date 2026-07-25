@@ -40,8 +40,8 @@ def test_auto_ini_values(pytester: pytest.Pytester, value: str, expected: bool) 
 
 def test_auto_ini_invalid_value(pytester: pytest.Pytester) -> None:
     pytester.makeini("[pytest]\nsnapshot_matplotlib_auto = maybe\n")
-    with pytest.raises(ValueError, match="Invalid snapshot_matplotlib_auto"):
-        resolve_config(pytester.parseconfigure())
+    with pytest.raises(pytest.UsageError, match="Invalid snapshot_matplotlib_auto"):
+        pytester.parseconfigure()
 
 
 def test_report_flag_default_html(pytester: pytest.Pytester) -> None:
@@ -57,8 +57,22 @@ def test_report_flag_multiple(pytester: pytest.Pytester) -> None:
 
 
 def test_invalid_report_type(pytester: pytest.Pytester) -> None:
-    with pytest.raises(ValueError, match="Invalid --snapshot-matplotlib-report"):
+    """`pytest_configure` translates the `ValueError` into a `UsageError`."""
+    with pytest.raises(pytest.UsageError, match="Invalid --snapshot-matplotlib-report"):
         pytester.parseconfigure("--snapshot-matplotlib-report=pdf")
+
+
+def test_invalid_report_type_reports_cleanly(pytester: pytest.Pytester) -> None:
+    """A malformed flag prints a usage error, not an INTERNALERROR traceback."""
+    pytester.makepyfile(test_noop="def test_noop(): pass")
+    result = pytester.runpytest("--snapshot-matplotlib-report=pdf")
+
+    assert result.ret != 0
+    result.stderr.fnmatch_lines(["*Invalid --snapshot-matplotlib-report type(s)*"])
+    assert not any(
+        "INTERNALERROR" in line
+        for line in result.outlines + result.errlines  # ty: ignore[unresolved-attribute]
+    )
 
 
 def test_ini_tolerance(pytester: pytest.Pytester) -> None:
@@ -70,8 +84,10 @@ def test_ini_tolerance(pytester: pytest.Pytester) -> None:
 
 def test_ini_tolerance_invalid(pytester: pytest.Pytester) -> None:
     pytester.makeini("[pytest]\nsnapshot_matplotlib_tolerance = loose\n")
-    with pytest.raises(ValueError, match="Invalid snapshot_matplotlib_tolerance"):
-        resolve_config(pytester.parseconfigure())
+    with pytest.raises(
+        pytest.UsageError, match="Invalid snapshot_matplotlib_tolerance"
+    ):
+        pytester.parseconfigure()
 
 
 @pytest.mark.parametrize(
@@ -95,8 +111,10 @@ def test_remove_text_ini_values(
 
 def test_remove_text_ini_invalid(pytester: pytest.Pytester) -> None:
     pytester.makeini("[pytest]\nsnapshot_matplotlib_remove_text = sometimes\n")
-    with pytest.raises(ValueError, match="Invalid snapshot_matplotlib_remove_text"):
-        resolve_config(pytester.parseconfigure())
+    with pytest.raises(
+        pytest.UsageError, match="Invalid snapshot_matplotlib_remove_text"
+    ):
+        pytester.parseconfigure()
 
 
 def test_savefig_kwargs_ini(pytester: pytest.Pytester) -> None:
@@ -111,12 +129,12 @@ def test_savefig_kwargs_ini(pytester: pytest.Pytester) -> None:
 def test_savefig_kwargs_ini_invalid_json(pytester: pytest.Pytester) -> None:
     pytester.makeini("[pytest]\nsnapshot_matplotlib_savefig_kwargs = {not json}\n")
     with pytest.raises(
-        ValueError, match="Invalid snapshot_matplotlib_savefig_kwargs JSON"
+        pytest.UsageError, match="Invalid snapshot_matplotlib_savefig_kwargs JSON"
     ):
-        resolve_config(pytester.parseconfigure())
+        pytester.parseconfigure()
 
 
 def test_savefig_kwargs_ini_not_object(pytester: pytest.Pytester) -> None:
     pytester.makeini("[pytest]\nsnapshot_matplotlib_savefig_kwargs = [1, 2, 3]\n")
-    with pytest.raises(ValueError, match="must be a JSON object"):
-        resolve_config(pytester.parseconfigure())
+    with pytest.raises(pytest.UsageError, match="must be a JSON object"):
+        pytester.parseconfigure()
