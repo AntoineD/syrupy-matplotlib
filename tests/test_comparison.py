@@ -6,6 +6,7 @@ import io
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
+import pytest
 
 from syrupy_matplotlib._comparison import run_comparison
 from syrupy_matplotlib._types import ImageMatchStatus
@@ -13,8 +14,6 @@ from syrupy_matplotlib._types import is_passing
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 def _png_bytes(data: list[float]) -> bytes:
@@ -106,11 +105,13 @@ def test_run_comparison_equal_bytes_skips_decode(
     """
     import syrupy_matplotlib._comparison as comparison
 
-    def explode(*args: object, **kwargs: object) -> None:
-        msg = "compare_images must not be called for identical bytes"
-        raise AssertionError(msg)
-
-    monkeypatch.setattr(comparison, "compare_images", explode)
+    monkeypatch.setattr(
+        comparison,
+        "compare_images",
+        lambda *args, **kwargs: pytest.fail(
+            "compare_images must not be called for identical bytes"
+        ),
+    )
     png = _png_bytes([1, 2, 3])
     result = run_comparison(
         test_bytes=png,

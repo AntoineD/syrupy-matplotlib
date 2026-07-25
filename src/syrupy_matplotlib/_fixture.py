@@ -124,7 +124,9 @@ def run_auto_assertions(item: pytest.Item) -> None:
     """Auto-assert any unasserted figure opened during *item* and fail on mismatch.
 
     Called from a `pytest_runtest_call` hookwrapper so a mismatch becomes a
-    proper test failure (call phase) rather than a teardown error.
+    proper test failure (call phase) rather than a teardown error. The
+    hookwrapper only calls this when `AUTO_STATE_KEY` is stashed on *item*,
+    i.e. when the fixture ran for this test.
 
     Args:
         item: The pytest item being executed.
@@ -133,10 +135,7 @@ def run_auto_assertions(item: pytest.Item) -> None:
         RuntimeError: If the assertion was created with an unexpected
             extension type (should not happen in normal use).
     """
-    state = item.stash.get(AUTO_STATE_KEY, None)
-    if state is None:
-        return
-    assertion, baseline_fig_nums = state
+    assertion, baseline_fig_nums = item.stash[AUTO_STATE_KEY]
     if not assertion._mpl_auto:
         return
 
