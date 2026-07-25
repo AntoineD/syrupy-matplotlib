@@ -43,9 +43,7 @@
 <div class="card" data-status="{{ verdict }}">
   <div class="card-header" onclick="toggle(this)">
     <span class="badge badge-{{ verdict }}">{{ verdict }}</span>
-    {% if record.image_status %}
     <span class="badge badge-{{ record.image_status }}" title="image">I</span>
-    {% endif %}
     <span class="test-name">{{ record.test_name }}</span>
     {% if record.rms is not none %}
     <span title="RMS">{{ "%.3f"|format(record.rms) }}</span>

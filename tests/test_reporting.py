@@ -50,11 +50,10 @@ def test_record_from_failed_result() -> None:
     assert record.error_message == "Images differ"
 
 
-def test_record_passed_false_when_image_status_missing() -> None:
-    """Records without an `image_status` (e.g. pending) count as failed."""
-    record = ResultRecord(test_name="t::pending")
-    assert record.image_status is None
-    assert record.passed is False
+def test_record_requires_image_status() -> None:
+    """Every record describes a comparison that ran — no "pending" state."""
+    with pytest.raises(TypeError, match="image_status"):
+        ResultRecord(test_name="t::pending")  # ty: ignore[missing-argument]
 
 
 def test_collector_record_and_retrieve() -> None:
@@ -69,13 +68,14 @@ def test_collector_summary() -> None:
     collector = ResultCollector()
     collector.record(ResultRecord.from_image_result("t::a", _passed_result()))
     collector.record(ResultRecord.from_image_result("t::b", _failed_result()))
-    # Pending records (no image_status) are counted in total but not classified.
-    collector.record(ResultRecord(test_name="t::c"))
+    collector.record(ResultRecord.from_image_result("t::c", _failed_result()))
 
     summary = collector.compute_summary()
     assert summary.total == 3
     assert summary.passed == 1
-    assert summary.failed == 1
+    assert summary.failed == 2
+    # Every record is classified, so the three fields stay consistent.
+    assert summary.total == summary.passed + summary.failed
 
 
 def test_record_relpath_outside_results_root() -> None:

@@ -29,8 +29,9 @@ class ResultRecord:
     test_name: str
     """Full pytest node id."""
 
-    image_status: str | None = None
-    """`ImageMatchStatus` value, or `None` when image comparison was not run."""
+    image_status: str
+    """`ImageMatchStatus` value. Every record describes a comparison that ran,
+    so there is no "pending" state."""
 
     rms: float | None = None
     """RMS pixel difference, or `None`."""
@@ -54,13 +55,9 @@ class ResultRecord:
     def passed(self) -> bool:
         """Whether this record counts as a passing test outcome.
 
-        Records with no `image_status` (e.g. pending) are treated as failed.
-
         Returns:
             `True` when `image_status` is `match` or `generated`.
         """
-        if self.image_status is None:
-            return False
         return is_passing(ImageMatchStatus(self.image_status))
 
     @classmethod
@@ -134,22 +131,16 @@ class RunSummary:
     def compute(cls, records: list[ResultRecord]) -> RunSummary:
         """Compute a `RunSummary` from a list of `ResultRecord` objects.
 
+        Every record is classified, so `total == passed + failed` always holds.
+
         Args:
             records: All records collected during the session.
 
         Returns:
             Populated `RunSummary`.
         """
-        passed = 0
-        failed = 0
-        for r in records:
-            if r.image_status is None:
-                continue
-            if r.passed:
-                passed += 1
-            else:
-                failed += 1
-        return cls(total=len(records), passed=passed, failed=failed)
+        passed = sum(1 for r in records if r.passed)
+        return cls(total=len(records), passed=passed, failed=len(records) - passed)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dictionary of all fields.

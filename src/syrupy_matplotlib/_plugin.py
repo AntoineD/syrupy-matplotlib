@@ -145,8 +145,8 @@ def _print_comparison_summary(
     failed_images: list[str] = []
 
     for r in records:
-        # `image_status` is the enum's str value (or None); str-enum equality
-        # lets the member patterns match it directly, and None falls through.
+        # `image_status` is the enum's str value; str-enum equality lets the
+        # member patterns match it directly. `_` covers DIFF and MISSING.
         match r.image_status:
             case ImageMatchStatus.MATCH:
                 ok_images.append(r.test_name)
