@@ -30,7 +30,10 @@ classifiers = [
 ]
 dependencies = [
     "jinja2>=3",
-    "matplotlib>=3.4",
+    # 3.5 is the first release shipping cp310 wheels. Anything lower forces a
+    # source build under `requires-python = ">=3.10"`, so the floor cannot drop
+    # below it without also dropping Python 3.10.
+    "matplotlib>=3.5",
     "pytest>=7",
     "syrupy>=5.1,<6",
 ]

@@ -18,6 +18,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Minimum supported matplotlib is now 3.5 (was 3.4). 3.5 is the first release
+  with cp310 wheels, so the old floor was uninstallable on this project's own
+  minimum Python without a C++ toolchain — `just test-min-deps` could never
+  run. No API used by the plugin changed between the two.
+
 - **Baselines with visible text, generated under matplotlib ≤ 3.10, will not
   match under matplotlib ≥ 3.11.** The hinting change above alters glyph
   rasterization. Regenerate with `--snapshot-update`, or insulate the suite
