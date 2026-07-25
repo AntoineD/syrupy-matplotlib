@@ -14,6 +14,8 @@ from syrupy_matplotlib._types import is_passing
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 
 def _png_bytes(data: list[float]) -> bytes:
     fig, ax = plt.subplots()
@@ -91,6 +93,38 @@ def test_run_comparison_diff_keep_on_match_false_keeps_artifacts(
     assert result.baseline_path.exists()
     assert result.diff_path is not None
     assert result.diff_path.exists()
+
+
+def test_run_comparison_equal_bytes_skips_decode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Byte-identical images never reach `compare_images`.
+
+    Deterministic rendering makes the green path byte-identical, so report
+    mode (which calls `run_comparison` for every passing test to keep its
+    artifacts) must not pay the double PNG decode.
+    """
+    import syrupy_matplotlib._comparison as comparison
+
+    def explode(*args: object, **kwargs: object) -> None:
+        msg = "compare_images must not be called for identical bytes"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(comparison, "compare_images", explode)
+    png = _png_bytes([1, 2, 3])
+    result = run_comparison(
+        test_bytes=png,
+        baseline_bytes=png,
+        tolerance=0.0,
+        diff_dir=tmp_path,
+        stem="foo",
+        keep_on_match=True,
+    )
+    assert result.status == ImageMatchStatus.MATCH
+    assert result.actual_path is not None
+    assert result.actual_path.exists()
+    assert result.baseline_path is not None
+    assert result.baseline_path.exists()
 
 
 def _png_bytes_with_figsize(figsize: tuple[float, float]) -> bytes:
