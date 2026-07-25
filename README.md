@@ -309,6 +309,18 @@ reproducibility helpers, SVG hashsalt, `SOURCE_DATE_EPOCH=0`. Figures are
 drawn under the configured `style` via
 `plt.style.context(..., after_reset=True)`.
 
+Determinism holds **within** a matplotlib version, not across upgrades. The
+plugin delegates font setup to `matplotlib.testing`, so whatever that helper
+changes, your rendering follows. Concretely, matplotlib 3.11 changed
+`set_font_settings_for_testing()` to set `text.hinting = "default"` (it was
+`"none"`) and stopped setting `text.hinting_factor`. Glyph rasterization
+differs between those two settings, so **baselines containing visible text and
+generated under matplotlib ≤ 3.10 will fail against matplotlib ≥ 3.11.**
+
+Treat a matplotlib minor bump like a FreeType change: regenerate with
+`--snapshot-update` and eyeball the diff, or insulate the suite with
+`remove_text = true` / a non-zero `snapshot_matplotlib_tolerance`.
+
 ## xdist support
 
 Works with `pytest-xdist` (`-n auto`). Workers write per-worker result

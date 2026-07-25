@@ -6,6 +6,23 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Support matplotlib 3.11. Its `set_font_settings_for_testing()` now sets
+  `text.hinting = "default"` (was `"none"`) and no longer sets
+  `text.hinting_factor`, which broke the determinism tests. Those tests now
+  derive the expected rcParams by running the helper instead of hardcoding
+  its values, so they track matplotlib's choices across releases.
+
+### Changed
+
+- **Baselines with visible text, generated under matplotlib ≤ 3.10, will not
+  match under matplotlib ≥ 3.11.** The hinting change above alters glyph
+  rasterization. Regenerate with `--snapshot-update`, or insulate the suite
+  with `remove_text = true` or a non-zero `snapshot_matplotlib_tolerance`.
+
 ## [0.1.1] - 2026-05-10
 
 ### Fixed
