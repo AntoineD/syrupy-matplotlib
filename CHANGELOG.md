@@ -10,6 +10,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A baseline with different pixel dimensions (a figsize or dpi change) now
+  fails as a normal comparison with a clear message, and is counted in the
+  terminal summary and reports. Previously matplotlib's
+  `ImageComparisonFailure` escaped as a raw traceback and the comparison
+  left no record anywhere.
+
+- HTML reports now escape markup in test ids and error messages. Escaping
+  was silently off (`select_autoescape` matches template-name suffixes and
+  the templates end in `.jinja2`), so a routine parametrize id like
+  `test_plot[<lambda>]` parsed as an HTML tag and vanished from the report.
+
+- The auto-assert path can no longer silently skip a figure. Asserted
+  figures were tracked by `id()`, so a new figure allocated at a closed,
+  already-asserted figure's address was treated as asserted; tracking is
+  now by object liveness.
+
+- Update mode no longer reports a baseline as "created" when serializing
+  the figure fails (e.g. rejected `savefig_kwargs`).
+
+- Orphaned xdist result fragments left in `figure-report/` by a crashed
+  run are now cleaned up at the start of the next session instead of
+  accumulating forever.
+
+- Disabling syrupy (`-p no:syrupy`) now produces a one-line usage error
+  saying the plugin requires it, instead of an `INTERNALERROR`
+  `AttributeError` traceback.
+
+- Session state stamped on the extension class is cleared at
+  `pytest_unconfigure`, so repeated in-process pytest runs (e.g.
+  `pytest.main()` called twice) no longer read the previous session's
+  collector.
+
 - A whitespace-only `snapshot_matplotlib_auto` is treated as unset instead of
   raising. Only reachable from `pyproject.toml`, which preserves whitespace
   where `.ini` sources strip it.
