@@ -12,6 +12,7 @@ The plugin owns:
 from __future__ import annotations
 
 import contextlib
+import sys
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -21,21 +22,50 @@ import pytest
 
 from . import _xdist
 from ._config import resolve_config
-from ._extension import MplFigureExtension
-from ._fixture import snapshot_matplotlib as _snapshot_matplotlib_fixture
 from ._reporting import ResultCollector
 from ._types import ImageMatchStatus
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from ._assertion import MplSnapshotAssertion
     from ._config import Config
     from ._reporting import ResultRecord
 
 __all__ = ["snapshot_matplotlib"]
 
-#: Re-exported so pytest discovers the fixture from this entry-point module.
-snapshot_matplotlib = _snapshot_matplotlib_fixture
+# This module is imported at every pytest startup via the plugin entry
+# point, so it must stay cheap: matplotlib and syrupy (~400 ms together)
+# are only reachable through `_fixture`/`_extension`, which are imported
+# lazily, inside the code paths that actually need them.
+
+#: Stashed on `item.stash` so `pytest_runtest_call` can run auto-assertions
+#: during the call phase. Populated only when the fixture is requested.
+AUTO_STATE_KEY: pytest.StashKey[tuple[MplSnapshotAssertion, set[int]]] = (
+    pytest.StashKey()
+)
+
+
+@pytest.fixture
+def snapshot_matplotlib(
+    request: pytest.FixtureRequest,
+) -> Generator[MplSnapshotAssertion, None, None]:
+    """Provide a matplotlib-aware snapshot assertion.
+
+    Thin wrapper so this entry-point module stays cheap to import: the
+    matplotlib/syrupy machinery in `_fixture` loads on the first test that
+    actually requests the fixture. See `_fixture.generate_snapshot_assertion`
+    for the full behavior documentation.
+
+    Args:
+        request: Pytest's fixture request object.
+
+    Yields:
+        A configured `MplSnapshotAssertion` usable with `==`.
+    """
+    from ._fixture import generate_snapshot_assertion
+
+    yield from generate_snapshot_assertion(request)
 
 
 # ── CLI / INI registration ──────────────────────────────────────────────────
@@ -118,15 +148,13 @@ def pytest_configure(config: pytest.Config) -> None:
         raise pytest.UsageError(str(e)) from e
     diff_dir = Path(config.rootpath) / "figure-report"
 
-    plugin = Plugin(config=mpl_config, diff_dir=diff_dir)
+    plugin = Plugin(
+        config=mpl_config,
+        diff_dir=diff_dir,
+        rootpath=Path(config.rootpath),
+        update_snapshots=bool(config.option.update_snapshots),
+    )
     config.pluginmanager.register(plugin, name="syrupy_matplotlib_plugin")
-
-    # Bind session-wide state on the extension class so the per-assertion
-    # stamping doesn't have to thread it through.
-    MplFigureExtension._mpl_collector = plugin.collector
-    MplFigureExtension._mpl_rootpath = Path(config.rootpath)
-    MplFigureExtension._mpl_update_snapshots = bool(config.option.update_snapshots)
-    MplFigureExtension._mpl_keep_match_artifacts = bool(mpl_config.report)
 
     _warn_if_png_ignored(config)
 
@@ -137,19 +165,26 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
-    """Reset the class-level extension bindings made in `pytest_configure`.
+    """Reset the class-level extension bindings made during the session.
 
     Without this, a later pytest session in the same process (repeated
     `pytest.main()` calls, pytester's in-process runner) reads the previous
     session's collector and rootpath.
 
+    The extension module is looked up in `sys.modules` rather than imported:
+    a session that never used the fixture never loaded matplotlib, and
+    unconfigure must not become the thing that loads it.
+
     Args:
         config: The pytest `Config` object (unused).
     """
-    MplFigureExtension._mpl_collector = None
-    MplFigureExtension._mpl_rootpath = None
-    MplFigureExtension._mpl_update_snapshots = False
-    MplFigureExtension._mpl_keep_match_artifacts = False
+    ext_module = sys.modules.get(f"{__package__}._extension")
+    if ext_module is None:
+        return
+    ext_module.MplFigureExtension._mpl_collector = None
+    ext_module.MplFigureExtension._mpl_rootpath = None
+    ext_module.MplFigureExtension._mpl_update_snapshots = False
+    ext_module.MplFigureExtension._mpl_keep_match_artifacts = False
 
 
 def _print_comparison_summary(
@@ -277,21 +312,52 @@ class Plugin:
     diff_dir: Path
     """Directory where pixel-comparison artifacts and reports land."""
 
+    rootpath: Path
+    """Pytest rootpath; namespaces artifact paths under `figure-report/`."""
+
+    update_snapshots: bool
+    """`True` when `--snapshot-update` is active."""
+
     collector: ResultCollector
     """Accumulates comparison outcomes across the session."""
 
     _is_xdist_worker: bool
     """`True` when running as an xdist worker."""
 
-    def __init__(self, config: Config, diff_dir: Path) -> None:
+    def __init__(
+        self,
+        config: Config,
+        diff_dir: Path,
+        rootpath: Path,
+        update_snapshots: bool,
+    ) -> None:
         """Args:
         config: Resolved plugin configuration.
         diff_dir: Directory where pixel-comparison artifacts are written.
+        rootpath: Pytest rootpath, used to namespace artifact paths.
+        update_snapshots: Value of `--snapshot-update`.
         """  # ruff: ignore[missing-blank-line-after-summary]
         self.config = config
         self.diff_dir = diff_dir
+        self.rootpath = rootpath
+        self.update_snapshots = update_snapshots
         self.collector = ResultCollector(results_root=diff_dir)
         self._is_xdist_worker = False
+
+    def bind_extension_class(self) -> None:
+        """Stamp session-wide state onto `MplFigureExtension` class attributes.
+
+        Called from fixture setup rather than `pytest_configure` so the
+        entry-point module never imports the matplotlib-heavy extension at
+        startup. Idempotent — every fixture instance re-stamps the same
+        session values.
+        """
+        from ._extension import MplFigureExtension
+
+        MplFigureExtension._mpl_collector = self.collector
+        MplFigureExtension._mpl_rootpath = self.rootpath
+        MplFigureExtension._mpl_update_snapshots = self.update_snapshots
+        MplFigureExtension._mpl_keep_match_artifacts = bool(self.config.report)
 
     @pytest.hookimpl(wrapper=True)
     def pytest_runtest_call(self, item: pytest.Item) -> Generator[None, None, None]:
@@ -312,10 +378,14 @@ class Plugin:
         Yields:
             Control to the inner hookimpls so the test body runs first.
         """
-        from ._fixture import run_auto_assertions
-
         result = yield
-        run_auto_assertions(item)
+        # Guard on the stash key before importing: this wrapper runs for
+        # every test, and `_fixture` must only load when the fixture was
+        # actually requested somewhere.
+        if AUTO_STATE_KEY in item.stash:
+            from ._fixture import run_auto_assertions
+
+            run_auto_assertions(item)
         return result
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:

@@ -7,9 +7,10 @@ Per-assertion state (`SnapshotParams`, node id, snapshot stem) is stamped
 onto the extension instance by `MplSnapshotAssertion._assert` before
 `matches()` runs — syrupy's `matches(*, serialized_data, snapshot_data)`
 signature does not thread that context through otherwise. Session-wide
-state (`_mpl_collector`, `_mpl_update_snapshots`) is bound once at
-`pytest_configure` time on the class. The diagnostic-artifact directory
-rides on `collector.results_root`.
+state (`_mpl_collector`, `_mpl_update_snapshots`) is bound on the class by
+`Plugin.bind_extension_class` at fixture setup (not `pytest_configure`, so
+the entry-point module never imports this matplotlib-heavy module). The
+diagnostic-artifact directory rides on `collector.results_root`.
 """
 
 from __future__ import annotations
@@ -50,19 +51,21 @@ class MplFigureExtension(SingleFileSnapshotExtension):
     """Effective per-assertion params; stamped by the assertion."""
 
     _mpl_collector: ResultCollector | None = None
-    """Shared report collector; bound once at `pytest_configure` time."""
+    """Shared report collector; bound by `Plugin.bind_extension_class`."""
 
     _mpl_rootpath: Path | None = None
-    """Pytest rootpath; bound once at `pytest_configure` time. Used to namespace
+    """Pytest rootpath; bound by `Plugin.bind_extension_class`. Used to namespace
     artifact paths under `figure-report/` so xdist workers running tests in
     different modules with overlapping test names don't clobber each other."""
 
     _mpl_update_snapshots: bool = False
-    """`True` when `--snapshot-update` is active; bound at `pytest_configure` time."""
+    """`True` when `--snapshot-update` is active; bound by
+    `Plugin.bind_extension_class`."""
 
     _mpl_keep_match_artifacts: bool = False
-    """`True` when a report format is requested; bound once at `pytest_configure` time.
-    When `False`, MATCH comparisons leave no files in `figure-report/`."""
+    """`True` when a report format is requested; bound by
+    `Plugin.bind_extension_class`. When `False`, MATCH comparisons leave no
+    files in `figure-report/`."""
 
     _mpl_nodeid: str | None = None
     """Full pytest node id; the `ResultRecord` key is this plus `::<stem>`."""

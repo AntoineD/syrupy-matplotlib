@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 from syrupy_matplotlib._extension import MplFigureExtension
@@ -29,6 +31,25 @@ def test_format_category_line_all_three_appends_created() -> None:
     """Mixed counts keep the classic line and append a ``, K created`` tail."""
     line = _format_category_line("Images", ok=["a"], created=["c"], failed=["b"])
     assert line == "Images: 1 OK, 1 failed, 1 created"
+
+
+def test_plugin_entry_point_import_stays_light() -> None:
+    """Importing the entry-point module must not load matplotlib or syrupy.
+
+    The module is imported at every pytest startup in every env that has
+    the plugin installed; the heavy dependencies (~400 ms) must only load
+    when a test actually uses the fixture.
+    """
+    code = (
+        "import sys\n"
+        "import syrupy_matplotlib._plugin\n"
+        "heavy = [m for m in ('matplotlib', 'syrupy', 'jinja2') if m in sys.modules]\n"
+        "assert not heavy, f'heavy imports at startup: {heavy}'\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
 
 
 def test_pytest_unconfigure_resets_extension_bindings(tmp_path: Path) -> None:

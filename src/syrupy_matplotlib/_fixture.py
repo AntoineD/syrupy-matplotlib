@@ -1,9 +1,14 @@
-"""The `snapshot_matplotlib` fixture — matplotlib-aware snapshot comparison.
+"""Implementation of the `snapshot_matplotlib` fixture.
 
-Deliberately named distinctly from syrupy's built-in `snapshot`, so users can
-use both fixtures side-by-side in the same test. Wraps the test body in a
-`deterministic_context` and `plt.style.context` so figures are drawn under
-reproducible settings.
+The fixture itself is declared in `_plugin` (pytest discovers it on the
+entry-point module) as a thin wrapper that imports this module lazily —
+this module pulls in matplotlib and syrupy, which must not load at pytest
+startup for suites that never use the fixture.
+
+The fixture is deliberately named distinctly from syrupy's built-in
+`snapshot`, so users can use both side-by-side in the same test. It wraps
+the test body in a `deterministic_context` and `plt.style.context` so
+figures are drawn under reproducible settings.
 """
 
 from __future__ import annotations
@@ -19,22 +24,17 @@ from ._assertion import MplSnapshotAssertion
 from ._determinism import deterministic_context
 from ._extension import MplFigureExtension
 from ._params import SnapshotParams
+from ._plugin import AUTO_STATE_KEY
+from ._plugin import Plugin
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-#: Stashed on `item.stash` so `pytest_runtest_call` can run auto-assertions
-#: during the call phase. Populated only when the fixture is requested.
-AUTO_STATE_KEY: pytest.StashKey[tuple[MplSnapshotAssertion, set[int]]] = (
-    pytest.StashKey()
-)
 
-
-@pytest.fixture
-def snapshot_matplotlib(
+def generate_snapshot_assertion(
     request: pytest.FixtureRequest,
 ) -> Generator[MplSnapshotAssertion, None, None]:
-    """Provide a matplotlib-aware snapshot assertion.
+    """Provide a matplotlib-aware snapshot assertion (fixture body).
 
     The fixture sets a deterministic matplotlib environment (backend, font
     settings, ``SOURCE_DATE_EPOCH``) and activates the requested matplotlib
@@ -59,12 +59,11 @@ def snapshot_matplotlib(
         RuntimeError: If the `syrupy_matplotlib_plugin` is not registered
             on the pytest config (should not happen in normal use).
     """
-    from ._plugin import Plugin
-
     plugin = request.config.pluginmanager.get_plugin("syrupy_matplotlib_plugin")
     if not isinstance(plugin, Plugin):  # pragma: no cover
         msg = "syrupy_matplotlib_plugin not registered"
         raise RuntimeError(msg)  # ruff: ignore[type-check-without-type-error]
+    plugin.bind_extension_class()
     params = SnapshotParams.from_config(plugin.config)
 
     with (
