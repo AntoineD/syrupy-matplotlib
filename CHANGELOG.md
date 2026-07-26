@@ -8,7 +8,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `snapshot_matplotlib.set_defaults(tolerance=..., savefig_kwargs=...,
+  remove_text=..., auto=...)` sets defaults for every assertion in the test.
+  The wrapper-fixture recipe in the README returned
+  `snapshot_matplotlib(tolerance=...)`, whose overrides syrupy reverts after
+  the next assertion — so a wrapper meant to loosen a whole package loosened
+  one assertion per test and left the rest at the INI default.
+
 ### Fixed
+
+- A missing baseline now writes the rendered figure to `figure-report/` and
+  links it from the report, as documented. Syrupy skips the extension's
+  `matches()` when there is no baseline, so the record carried no image at
+  all and the auto-emitted failure report showed an imageless card.
+
+- A test that requests the fixture with auto enabled and compares no figure
+  now warns instead of passing silently. Auto-discovery only sees
+  pyplot-managed figures, so a bare `Figure()` left the test green with
+  nothing compared.
+
+- A blank INI value is treated as unset for every `snapshot_matplotlib_*`
+  option. `snapshot_matplotlib_remove_text =` used to abort the run with
+  "Expected true/false", and a blank style or backend reached matplotlib as
+  the empty string.
+
+- The xdist fragment sweep no longer deletes a concurrently running session's
+  unmerged result fragments; it only removes fragments older than an hour.
+  Two runs sharing a rootdir (`tox -p`, two CI jobs on one checkout) could
+  silently drop each other's worker results from the report.
 
 - A baseline with different pixel dimensions (a figsize or dpi change) now
   fails as a normal comparison with a clear message, and is counted in the
