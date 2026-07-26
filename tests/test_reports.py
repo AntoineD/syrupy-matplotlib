@@ -220,3 +220,70 @@ def test_auto_report_absent_under_snapshot_update(pytester: pytest.Pytester) -> 
     pytester.runpytest("--snapshot-update").assert_outcomes(passed=2)
 
     assert not (pytester.path / "figure-report" / "report.html").exists()
+
+
+CHANGED_TEST = textwrap.dedent("""\
+    import matplotlib.pyplot as plt
+
+    def test_one(snapshot_matplotlib):
+        fig, ax = plt.subplots(); ax.plot([3, 2, 1])  # changed
+        assert fig == snapshot_matplotlib
+
+    def test_two(snapshot_matplotlib):
+        fig, ax = plt.subplots(); ax.plot([1, 2, 4])
+        assert fig == snapshot_matplotlib
+""")
+
+
+def test_green_run_clears_the_previous_failure_report(
+    pytester: pytest.Pytester,
+) -> None:
+    """Fixing the suite removes the report the failing run left behind.
+
+    An all-pass run writes no report — so without clearing, `report.html`
+    from the previous failing run survives and keeps listing a failure that
+    no longer exists.
+    """
+    pytester.makepyfile(test_plots=REPORT_TEST)
+    pytester.runpytest("--snapshot-update")
+
+    pytester.makepyfile(test_plots=CHANGED_TEST)
+    pytester.runpytest().assert_outcomes(passed=1, failed=1)
+    assert (pytester.path / "figure-report" / "report.html").exists()
+
+    pytester.makepyfile(test_plots=REPORT_TEST)
+    pytester.runpytest().assert_outcomes(passed=2)
+
+    assert not (pytester.path / "figure-report").exists()
+
+
+def test_green_run_clears_stale_comparison_images(pytester: pytest.Pytester) -> None:
+    """Artifacts of a test that now passes don't linger under the report dir."""
+    pytester.makepyfile(test_plots=REPORT_TEST)
+    pytester.runpytest("--snapshot-update")
+
+    pytester.makepyfile(test_plots=CHANGED_TEST)
+    pytester.runpytest().assert_outcomes(passed=1, failed=1)
+    assert list((pytester.path / "figure-report").rglob("*.png"))
+
+    pytester.makepyfile(test_plots=REPORT_TEST)
+    pytester.runpytest("--snapshot-matplotlib-report=json").assert_outcomes(passed=2)
+
+    stale = [p.name for p in (pytester.path / "figure-report").rglob("*diff*")]
+    assert stale == []
+
+
+def test_update_run_clears_the_previous_failure_report(
+    pytester: pytest.Pytester,
+) -> None:
+    """Regenerating baselines also retires the report that motivated it."""
+    pytester.makepyfile(test_plots=REPORT_TEST)
+    pytester.runpytest("--snapshot-update")
+
+    pytester.makepyfile(test_plots=CHANGED_TEST)
+    pytester.runpytest().assert_outcomes(passed=1, failed=1)
+    assert (pytester.path / "figure-report" / "report.html").exists()
+
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=2)
+
+    assert not (pytester.path / "figure-report").exists()

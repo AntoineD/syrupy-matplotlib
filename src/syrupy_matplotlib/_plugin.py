@@ -52,6 +52,10 @@ AUTO_STATE_KEY: pytest.StashKey[tuple[MplSnapshotAssertion, set[int]]] = (
 #: silently, while keeping a dead one an hour longer costs a few kilobytes.
 _STALE_FRAGMENT_AGE_S = 3600.0
 
+#: Top-level files the report generators write. Cleared at session start so a
+#: fixed suite's green run cannot leave the previous run's report standing.
+_REPORT_FILENAMES = ("report.html", "report-basic.html", "results.json", "styles.css")
+
 
 @pytest.fixture
 def snapshot_matplotlib(
@@ -402,7 +406,7 @@ class Plugin:
         return result
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
-        """Initialise xdist state at session start.
+        """Initialise xdist state and clear the previous session's leftovers.
 
         Args:
             session: The current pytest session.
@@ -412,6 +416,7 @@ class Plugin:
             self._is_xdist_worker = _xdist._is_worker(session.config)
         if not self._is_xdist_worker:
             _sweep_stale_fragments(self.diff_dir)
+            _clear_previous_artifacts(self.diff_dir)
 
     def pytest_sessionfinish(
         self,
@@ -546,6 +551,36 @@ def _sweep_stale_fragments(diff_dir: Path) -> None:
         with contextlib.suppress(OSError):
             if stale.stat().st_mtime < cutoff:
                 stale.unlink()
+
+
+def _clear_previous_artifacts(diff_dir: Path) -> None:
+    """Delete the reports and comparison images an earlier session wrote.
+
+    `figure-report/` is meant to describe the run that just finished. A
+    failing run writes `report.html` plus actual/baseline/diff PNGs; once
+    the suite is fixed, the next run writes no report at all — and left
+    alone the old one stays, still listing failures that no longer exist.
+    A CI job archiving the directory out of a cached workspace then
+    publishes a report contradicting the run it came from.
+
+    Only files this plugin writes are removed: the reports by name, the
+    comparison artifacts by extension. Result fragments are deliberately
+    left to `_sweep_stale_fragments`, which age-gates them because
+    deleting a live session's fragment loses its results for good. A
+    report is a final output that its own session rewrites at session end,
+    so a concurrent run loses nothing here that it will not rewrite.
+
+    Args:
+        diff_dir: The artifact directory to clear.
+    """
+    for name in _REPORT_FILENAMES:
+        with contextlib.suppress(OSError):
+            (diff_dir / name).unlink(missing_ok=True)
+    # Hardcoded rather than read off `MplFigureExtension.file_extension`:
+    # this module must not import the matplotlib-heavy extension.
+    for image in diff_dir.rglob("*.png"):
+        with contextlib.suppress(OSError):
+            image.unlink()
 
 
 def _remove_empty_subtree(root: Path) -> None:
