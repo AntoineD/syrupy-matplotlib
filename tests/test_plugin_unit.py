@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+import time
 from typing import TYPE_CHECKING
 
 from syrupy_matplotlib._extension import MplFigureExtension
+from syrupy_matplotlib._plugin import _STALE_FRAGMENT_AGE_S
 from syrupy_matplotlib._plugin import _format_category_line
 from syrupy_matplotlib._plugin import _remove_empty_subtree
 from syrupy_matplotlib._plugin import _sweep_stale_fragments
@@ -86,10 +89,18 @@ def test_pytest_unconfigure_resets_extension_bindings(tmp_path: Path) -> None:
         ) = saved
 
 
+def _write_fragment(path: Path, age_s: float) -> Path:
+    """Write a fragment file and backdate it by *age_s* seconds."""
+    path.write_text("{}")
+    stamp = time.time() - age_s
+    os.utime(path, (stamp, stamp))
+    return path
+
+
 def test_sweep_stale_fragments_removes_orphans_only(tmp_path: Path) -> None:
     """Leftover fragment files go; everything else in the directory stays."""
-    (tmp_path / "_results-deadbeef-gw0.json").write_text("{}")
-    (tmp_path / "_results-deadbeef-gw1.json").write_text("{}")
+    _write_fragment(tmp_path / "_results-deadbeef-gw0.json", _STALE_FRAGMENT_AGE_S * 2)
+    _write_fragment(tmp_path / "_results-deadbeef-gw1.json", _STALE_FRAGMENT_AGE_S * 2)
     keeper = tmp_path / "report.html"
     keeper.write_text("kept")
 
@@ -97,6 +108,24 @@ def test_sweep_stale_fragments_removes_orphans_only(tmp_path: Path) -> None:
 
     assert not list(tmp_path.glob("_results-*.json"))
     assert keeper.exists()
+
+
+def test_sweep_stale_fragments_keeps_fresh_ones(tmp_path: Path) -> None:
+    """A concurrent session's just-written fragments survive the sweep.
+
+    Its workers have finished but its controller has not merged yet; the
+    UID in the name gives no way to tell that apart from an orphan, so a
+    recent mtime has to be enough to keep the file.
+    """
+    fresh = _write_fragment(tmp_path / "_results-cafe-gw0.json", 0)
+    old = _write_fragment(
+        tmp_path / "_results-deadbeef-gw0.json", _STALE_FRAGMENT_AGE_S * 2
+    )
+
+    _sweep_stale_fragments(tmp_path)
+
+    assert fresh.exists()
+    assert not old.exists()
 
 
 def test_sweep_stale_fragments_missing_dir_is_noop(tmp_path: Path) -> None:

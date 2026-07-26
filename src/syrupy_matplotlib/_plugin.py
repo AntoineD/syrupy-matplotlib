@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import time
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -45,6 +46,11 @@ __all__ = ["snapshot_matplotlib"]
 AUTO_STATE_KEY: pytest.StashKey[tuple[MplSnapshotAssertion, set[int]]] = (
     pytest.StashKey()
 )
+
+#: Age past which an unmerged xdist result fragment is considered orphaned.
+#: Generous on purpose — sweeping a live session's fragment loses its results
+#: silently, while keeping a dead one an hour longer costs a few kilobytes.
+_STALE_FRAGMENT_AGE_S = 3600.0
 
 
 @pytest.fixture
@@ -523,12 +529,23 @@ def _sweep_stale_fragments(diff_dir: Path) -> None:
     alone they accumulate forever and keep `figure-report/` from being
     pruned as empty.
 
+    Fragment names carry the writing session's UID, but a sweep cannot tell
+    a dead session's UID from a live one's, so it goes by age instead: a
+    second pytest session sharing this rootdir (`tox -p`, two shells, two
+    CI jobs on one checkout) may have workers whose fragments are written
+    and not yet merged, and deleting those would silently drop their
+    results from the other run's report. Workers write at session end and
+    the controller merges seconds later, so anything older than
+    `_STALE_FRAGMENT_AGE_S` belongs to a run that is not coming back.
+
     Args:
         diff_dir: The `figure-report/` directory to sweep.
     """
+    cutoff = time.time() - _STALE_FRAGMENT_AGE_S
     for stale in diff_dir.glob("_results-*.json"):
         with contextlib.suppress(OSError):
-            stale.unlink()
+            if stale.stat().st_mtime < cutoff:
+                stale.unlink()
 
 
 def _remove_empty_subtree(root: Path) -> None:
