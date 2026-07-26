@@ -28,8 +28,9 @@ class SnapshotParams:
     tolerance: float
     """RMS threshold for pixel comparison."""
 
-    style: str
-    """Matplotlib style applied to the fixture's `plt.style.context`."""
+    style: tuple[str, ...]
+    """Matplotlib styles applied to the fixture's `plt.style.context`, in
+    application order."""
 
     backend: str
     """Matplotlib backend used for rendering."""

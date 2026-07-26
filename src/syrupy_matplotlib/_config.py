@@ -51,6 +51,25 @@ def _read_ini(config: pytest.Config, option: str, default: str) -> str:
     return str(config.getini(option) or "").strip() or default
 
 
+def _parse_styles(value: str) -> tuple[str, ...]:
+    """Split a comma-separated style setting into individual style names.
+
+    Matplotlib composes styles by applying them left to right, which is how
+    its own test suite reaches `("classic", "_classic_test_patch")`. Passing
+    that whole string to `plt.style.context()` instead raises an opaque
+    `OSError` from every test, so the option is split here, on the same
+    comma convention `--snapshot-matplotlib-report` uses.
+
+    Args:
+        value: Raw INI value, e.g. `"classic,_classic_test_patch"`.
+
+    Returns:
+        The style names in application order. Never empty — a blank value
+        is resolved to the default before this runs.
+    """
+    return tuple(s.strip() for s in value.split(",") if s.strip())
+
+
 def _parse_bool(value: str, option: str) -> bool:
     """Parse a case-insensitive boolean string.
 
@@ -88,8 +107,9 @@ class Config:
     tolerance: float
     """Default RMS tolerance for pixel comparison."""
 
-    style: str
-    """Default matplotlib style applied for the lifetime of the fixture."""
+    style: tuple[str, ...]
+    """Default matplotlib styles applied for the lifetime of the fixture,
+    in application order."""
 
     backend: str
     """Default matplotlib backend used for rendering."""
@@ -146,7 +166,7 @@ def resolve_config(config: pytest.Config) -> Config:
             "Expected a number."
         )
         raise ValueError(msg) from e
-    style = _read_ini(config, "snapshot_matplotlib_style", DEFAULT_STYLE)
+    style = _parse_styles(_read_ini(config, "snapshot_matplotlib_style", DEFAULT_STYLE))
     backend = _read_ini(config, "snapshot_matplotlib_backend", DEFAULT_BACKEND)
 
     auto = _parse_bool(

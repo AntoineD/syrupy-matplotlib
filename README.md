@@ -251,6 +251,10 @@ snapshot_matplotlib_savefig_kwargs = {}
 A blank value (`snapshot_matplotlib_remove_text =`) counts as unset for every
 option and falls back to the default shown above.
 
+`snapshot_matplotlib_style` accepts a comma-separated list, applied left to
+right the way `plt.style.use()` composes styles — `classic,
+_classic_test_patch` is matplotlib's own test-suite pairing.
+
 `snapshot_matplotlib_savefig_kwargs` accepts a JSON object whose keys are
 forwarded to `Figure.savefig()`. A per-call
 `snapshot_matplotlib(savefig_kwargs=...)` **replaces** the INI dict wholesale
@@ -273,7 +277,8 @@ deviations:
   so mpl's vendored baseline PNGs keep matching across releases. This
   plugin uses `default` (current mpl built-in defaults): fresh baselines
   compare against themselves, so the patch is irrelevant — it only
-  matters for byte-parity with mpl's own upstream baseline fixtures.
+  matters for byte-parity with mpl's own upstream baseline fixtures. Set
+  `snapshot_matplotlib_style = classic,_classic_test_patch` to adopt it.
 
 - **FreeType version pin.** `image_comparison(..., freetype_version=...)`
   skips a test when the installed FreeType differs from the version the

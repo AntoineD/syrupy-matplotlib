@@ -21,7 +21,7 @@ def _cfg(
     return Config(
         report=frozenset(),
         tolerance=tolerance,
-        style="classic",
+        style=("classic",),
         backend="agg",
         auto=True,
         remove_text=remove_text,
@@ -32,7 +32,7 @@ def _cfg(
 def test_from_config_defaults() -> None:
     params = SnapshotParams.from_config(_cfg())
     assert params.tolerance == 2.0
-    assert params.style == "classic"
+    assert params.style == ("classic",)
     assert params.backend == "agg"
     assert params.remove_text is False
     assert params.savefig_kwargs == {}

@@ -13,7 +13,7 @@ def test_defaults(pytester: pytest.Pytester) -> None:
     config = pytester.parseconfigure()
     cfg = resolve_config(config)
     assert cfg.tolerance == 0.0
-    assert cfg.style == "default"
+    assert cfg.style == ("default",)
     assert cfg.backend == "agg"
     assert cfg.report == frozenset()
     assert cfg.auto is True
@@ -191,8 +191,23 @@ def test_blank_ini_value_uses_default(pytester: pytest.Pytester, option: str) ->
     pytester.makeini(f"[pytest]\n{option} =\n")
     cfg = resolve_config(pytester.parseconfigure())
     assert cfg.tolerance == 0.0
-    assert cfg.style == "default"
+    assert cfg.style == ("default",)
     assert cfg.backend == "agg"
     assert cfg.auto is True
     assert cfg.remove_text is False
     assert cfg.savefig_kwargs == {}
+
+
+def test_style_accepts_a_composed_list(pytester: pytest.Pytester) -> None:
+    """A comma-separated value composes styles the way matplotlib does.
+
+    `plt.style.context()` applies styles left to right — that is how
+    matplotlib's own suite reaches `("classic", "_classic_test_patch")`.
+    Passing the whole string through raised an opaque `OSError` out of
+    every test instead.
+    """
+    pytester.makeini(
+        "[pytest]\nsnapshot_matplotlib_style = classic, _classic_test_patch\n"
+    )
+    cfg = resolve_config(pytester.parseconfigure())
+    assert cfg.style == ("classic", "_classic_test_patch")

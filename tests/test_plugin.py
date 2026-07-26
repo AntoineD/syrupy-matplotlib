@@ -711,3 +711,19 @@ def test_auto_reports_serialization_error_not_mismatch(
     result.assert_outcomes(failed=1, errors=0)
     result.stdout.fnmatch_lines(["*ValueError: savefig_kwargs must not set 'format'*"])
     assert "figure mismatch" not in result.stdout.str()
+
+
+def test_composed_style_list_renders(pytester: pytest.Pytester) -> None:
+    """A multi-style INI value reaches `plt.style.context` as a list.
+
+    Handed the raw `"classic,_classic_test_patch"` string, matplotlib
+    raised `OSError` during fixture setup and every test in the suite
+    errored out before its body ran.
+    """
+    pytester.makepyfile(test_plots=SIMPLE_TEST)
+    pytester.makeini(
+        "[pytest]\nsnapshot_matplotlib_style = classic, _classic_test_patch\n"
+    )
+
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=1)
+    pytester.runpytest("-v").assert_outcomes(passed=1, errors=0)

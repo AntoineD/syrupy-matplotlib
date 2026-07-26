@@ -17,7 +17,7 @@ from syrupy_matplotlib._reporting import ResultCollector
 def _params() -> SnapshotParams:
     return SnapshotParams(
         tolerance=2.0,
-        style="classic",
+        style=("classic",),
         backend="agg",
         remove_text=False,
     )
@@ -58,7 +58,7 @@ def test_serialize_returns_png_bytes() -> None:
 def test_serialize_remove_text_strips_title() -> None:
     params = SnapshotParams(
         tolerance=2.0,
-        style="classic",
+        style=("classic",),
         backend="agg",
         remove_text=True,
     )
@@ -109,7 +109,7 @@ def test_serialize_update_failure_records_nothing() -> None:
     coll = ResultCollector()
     params = SnapshotParams(
         tolerance=2.0,
-        style="classic",
+        style=("classic",),
         backend="agg",
         remove_text=False,
         savefig_kwargs={"format": "pdf"},

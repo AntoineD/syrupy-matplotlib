@@ -42,7 +42,7 @@ def _make_assertion(pytester: pytest.Pytester) -> MplSnapshotAssertion:
         update_snapshots=False,
         mpl_params=SnapshotParams(
             tolerance=2.0,
-            style="classic",
+            style=("classic",),
             backend="agg",
             remove_text=False,
         ),

@@ -68,7 +68,9 @@ def generate_snapshot_assertion(
     params = SnapshotParams.from_config(plugin.config)
 
     with (
-        plt.style.context(params.style, after_reset=True),
+        # A list, not the tuple: matplotlib only treats a non-str, non-Path,
+        # non-mapping argument as a sequence of styles to compose.
+        plt.style.context(list(params.style), after_reset=True),
         deterministic_context(params.backend),
     ):
         baseline_fig_nums = set(Gcf.figs)
