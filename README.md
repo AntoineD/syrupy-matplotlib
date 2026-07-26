@@ -344,7 +344,7 @@ their fragments or image artifacts to the controller.
 ## Custom fixture wrappers
 
 To set test-scoped defaults (e.g. a different tolerance for one package),
-wrap the fixture in a `conftest.py`:
+wrap the fixture in a `conftest.py` and call `set_defaults()`:
 
 ```python
 import pytest
@@ -352,5 +352,11 @@ import pytest
 
 @pytest.fixture
 def snapshot_matplotlib(snapshot_matplotlib):
-    return snapshot_matplotlib(tolerance=5.0)
+    return snapshot_matplotlib.set_defaults(tolerance=5.0)
 ```
+
+`set_defaults(tolerance=..., savefig_kwargs=..., remove_text=..., auto=...)`
+applies to **every** assertion in the test, including the ones made by the
+auto path. Calling `snapshot_matplotlib(tolerance=5.0)` in a wrapper fixture
+instead would set the tolerance for the *first* assertion only — per-call
+overrides are reverted once the assertion they precede has run.

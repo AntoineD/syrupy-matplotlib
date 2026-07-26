@@ -90,7 +90,8 @@ class MplSnapshotAssertion(SnapshotAssertion):
 
         Matplotlib-specific kwargs are stashed temporarily on `self`;
         syrupy-native kwargs forward to the parent's `__call__`. All
-        overrides are reverted by `_post_assert` after the assertion runs.
+        overrides are reverted by `_post_assert` after the assertion runs —
+        use `set_defaults()` for values that must hold for the whole test.
 
         Args:
             tolerance: RMS threshold override.
@@ -132,6 +133,51 @@ class MplSnapshotAssertion(SnapshotAssertion):
             include=include,
             extension_class=extension_class,
         )
+
+    def set_defaults(
+        self,
+        *,
+        tolerance: float | None = None,
+        savefig_kwargs: dict[str, Any] | None = None,
+        remove_text: bool | None = None,
+        auto: bool | None = None,
+    ) -> MplSnapshotAssertion:
+        """Set defaults for every later assertion made through this fixture.
+
+        `snapshot_matplotlib(...)` applies its overrides to the next
+        assertion only — they are reverted by `_post_assert`. This method
+        rebinds the fixture's own params instead, so the values hold for
+        every assertion in the test, including the ones the auto path makes
+        at the end of the call phase.
+
+        Intended for wrapper fixtures that raise the bar for a whole
+        package::
+
+            @pytest.fixture
+            def snapshot_matplotlib(snapshot_matplotlib):
+                return snapshot_matplotlib.set_defaults(tolerance=5.0)
+
+        `style` and `backend` are absent for the same reason `merge()`
+        omits them: they must be active before the figure is drawn.
+
+        Args:
+            tolerance: RMS threshold for every later assertion.
+            savefig_kwargs: Extra `Figure.savefig()` kwargs (replaces, does
+                not merge).
+            remove_text: Whether to strip tick labels and titles.
+            auto: Enable/disable auto-discover / auto-assert / auto-close.
+
+        Returns:
+            `self`, so the call can be returned straight from a fixture.
+        """
+        self._mpl_params = self._mpl_params.merge(
+            tolerance=tolerance,
+            savefig_kwargs=savefig_kwargs,
+            remove_text=remove_text,
+        )
+        if auto is not None:
+            self._mpl_auto = bool(auto)
+        return self
 
     def _assert(self, data: Any) -> bool:
         """Stamp per-call state onto the extension, then delegate to syrupy.

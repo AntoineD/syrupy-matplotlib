@@ -91,6 +91,33 @@ def test_call_override_reverts_after_post_assert(pytester: pytest.Pytester) -> N
     assert snap._mpl_params.tolerance == 2.0
 
 
+def test_set_defaults_survives_post_assert(pytester: pytest.Pytester) -> None:
+    """`set_defaults` rebinds the fixture params, so the drain doesn't undo it."""
+    snap = _make_assertion(pytester)
+
+    assert snap.set_defaults(tolerance=99.0, remove_text=True, auto=False) is snap
+    snap._post_assert()
+
+    assert snap._mpl_params.tolerance == 99.0
+    assert snap._mpl_params.remove_text is True
+    assert snap._mpl_auto is False
+
+
+def test_set_defaults_no_args_keeps_params(pytester: pytest.Pytester) -> None:
+    """Every argument is optional; omitting all of them changes nothing."""
+    snap = _make_assertion(pytester)
+    snap.set_defaults()
+    assert snap._mpl_params.tolerance == 2.0
+    assert snap._mpl_auto is True
+
+
+def test_set_defaults_savefig_kwargs_replaces(pytester: pytest.Pytester) -> None:
+    """`savefig_kwargs` replaces wholesale, matching `merge()`."""
+    snap = _make_assertion(pytester)
+    snap.set_defaults(savefig_kwargs={"dpi": 150})
+    assert snap._mpl_params.savefig_kwargs == {"dpi": 150}
+
+
 def test_asserted_figs_entry_dies_with_the_figure(pytester: pytest.Pytester) -> None:
     """Closed figures drop out of the asserted set.
 

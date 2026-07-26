@@ -170,6 +170,49 @@ def test_per_call_override_does_not_persist(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(failed=1)
 
 
+def test_set_defaults_applies_to_every_assertion(pytester: pytest.Pytester) -> None:
+    """A wrapper fixture's `set_defaults` holds for the whole test.
+
+    Mirror image of `test_per_call_override_does_not_persist`: both figures
+    change, and both assertions must ride the wrapper's huge tolerance. With
+    `snapshot_matplotlib(tolerance=...)` in the wrapper — the recipe the
+    README used to show — the second assertion would fall back to the default
+    tolerance and fail.
+    """
+    pytester.makeconftest("""\
+        import pytest
+
+        @pytest.fixture
+        def snapshot_matplotlib(snapshot_matplotlib):
+            return snapshot_matplotlib.set_defaults(tolerance=1000)
+    """)
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            import matplotlib.pyplot as plt
+
+            def test_two(snapshot_matplotlib):
+                f1, a1 = plt.subplots(); a1.plot([1, 2, 3])
+                assert f1 == snapshot_matplotlib
+                f2, a2 = plt.subplots(); a2.plot([1, 2, 3])
+                assert f2 == snapshot_matplotlib
+        """)
+    )
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=1)
+
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            import matplotlib.pyplot as plt
+
+            def test_two(snapshot_matplotlib):
+                f1, a1 = plt.subplots(); a1.plot([3, 2, 1])
+                assert f1 == snapshot_matplotlib
+                f2, a2 = plt.subplots(); a2.plot([3, 2, 1])
+                assert f2 == snapshot_matplotlib
+        """)
+    )
+    pytester.runpytest("-v").assert_outcomes(passed=1)
+
+
 def test_unknown_policy_kwarg_rejected(pytester: pytest.Pytester) -> None:
     """Removed `policy=` kwarg raises a TypeError at call time."""
     pytester.makepyfile(
