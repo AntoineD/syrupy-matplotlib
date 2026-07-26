@@ -6,7 +6,7 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-07-26
 
 ### Added
 
@@ -27,7 +27,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A test that requests the fixture with auto enabled and compares no figure
   now warns instead of passing silently. Auto-discovery only sees
   pyplot-managed figures, so a bare `Figure()` left the test green with
-  nothing compared.
+  nothing compared. Suites running under `-W error` will see such a test
+  fail — assert the figure explicitly, or pass `auto=False` when a test
+  deliberately compares nothing.
 
 - A blank INI value is treated as unset for every `snapshot_matplotlib_*`
   option. `snapshot_matplotlib_remove_text =` used to abort the run with
