@@ -116,6 +116,29 @@ def test_no_report_flag_failure_keeps_artifacts(pytester: pytest.Pytester) -> No
     assert "test_two.png" not in pngs
 
 
+def test_missing_baseline_writes_rendered_image(pytester: pytest.Pytester) -> None:
+    """A missing baseline leaves the rendered figure and links it in the report.
+
+    Syrupy skips `matches()` when there is no baseline, so the artifact has to
+    be written from the assertion. Without it the auto-emitted failed-only
+    report shows an imageless card for exactly the case where seeing the
+    render matters most.
+    """
+    pytester.makepyfile(test_plots=REPORT_TEST)
+
+    pytester.runpytest("-v").assert_outcomes(failed=2)
+
+    report_dir = pytester.path / "figure-report"
+    pngs = {p.name for p in report_dir.rglob("*.png")}
+    assert pngs == {"test_one.png", "test_two.png"}
+    # No baseline exists, so nothing to compare or diff against.
+    assert not list(report_dir.rglob("*-expected.png"))
+    assert not list(report_dir.rglob("*-diff.png"))
+
+    report = (report_dir / "report.html").read_text(encoding="utf-8")
+    assert 'src="test_plots/test_one.png"' in report
+
+
 def test_report_includes_failure(pytester: pytest.Pytester) -> None:
     """Failures are surfaced in the JSON report."""
     pytester.makepyfile(test_plots=REPORT_TEST)

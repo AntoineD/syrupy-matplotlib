@@ -20,7 +20,9 @@ from typing import Any
 from matplotlib.figure import Figure
 from syrupy.assertion import SnapshotAssertion
 
+from ._comparison import run_comparison
 from ._extension import MplFigureExtension
+from ._extension import _coerce_bytes
 from ._reporting import ResultRecord
 from ._types import ImageMatchStatus
 from ._types import ImageResult
@@ -31,6 +33,7 @@ if TYPE_CHECKING:
     from syrupy.session import SnapshotSession
 
     from ._params import SnapshotParams
+    from ._reporting import ResultCollector
 
 
 class MplSnapshotAssertion(SnapshotAssertion):
@@ -185,8 +188,9 @@ class MplSnapshotAssertion(SnapshotAssertion):
         When the on-disk baseline is missing, syrupy's `_assert` returns
         `False` without calling `extension.matches()`, so no comparison
         record is written and the session summary undercounts the failure.
-        We synthesize a `MISSING` record afterwards to keep the summary
-        consistent.
+        We build the `MISSING` record afterwards to keep the summary
+        consistent, writing the rendered figure to `figure-report/` so the
+        report has something to show.
 
         Args:
             data: The left-hand operand of `==` (a `Figure` for the default
@@ -218,15 +222,11 @@ class MplSnapshotAssertion(SnapshotAssertion):
         if latest is None or latest.recalled_data is not None:
             return success
         # Syrupy bypassed `matches()` due to missing baseline. Record it.
-        missing = ImageResult(
-            status=ImageMatchStatus.MISSING,
-            tolerance=self._mpl_params.tolerance,
-            error_message="Baseline image not found on disk.",
-        )
-        ext._mpl_last_failure_message = missing.error_message
         collector = ext._mpl_collector
         if collector is None:  # pragma: no cover
             return success
+        missing = self._build_missing_result(ext, collector, latest.asserted_data, stem)
+        ext._mpl_last_failure_message = missing.error_message
         collector.record(
             ResultRecord.from_image_result(
                 test_name=f"{self.test_location.nodeid}::{stem}",
@@ -235,3 +235,44 @@ class MplSnapshotAssertion(SnapshotAssertion):
             )
         )
         return success
+
+    def _build_missing_result(
+        self,
+        ext: MplFigureExtension,
+        collector: ResultCollector,
+        serialized: Any,
+        stem: str,
+    ) -> ImageResult:
+        """Build the `MISSING` result, saving the rendered figure when possible.
+
+        A missing baseline is the one failure mode where the user has nothing
+        to compare against, which makes seeing what was actually drawn more
+        useful than usual — so the serialized PNG is written under
+        `figure-report/` and linked from the result, exactly as a `DIFF`
+        would be.
+
+        Args:
+            ext: The stamped extension instance.
+            collector: Collector holding the artifact root.
+            serialized: Bytes syrupy serialized for this assertion, or `None`
+                when serialization raised.
+            stem: Filename stem of the current snapshot.
+
+        Returns:
+            A `MISSING` `ImageResult`, carrying `actual_path` when the
+            rendered figure could be written.
+        """
+        if serialized is None or collector.results_root is None:
+            return ImageResult(
+                status=ImageMatchStatus.MISSING,
+                tolerance=self._mpl_params.tolerance,
+                error_message="Baseline image not found on disk.",
+            )
+        return run_comparison(
+            test_bytes=_coerce_bytes(serialized),
+            baseline_bytes=None,
+            tolerance=self._mpl_params.tolerance,
+            diff_dir=collector.results_root / ext._artifact_subdir(),
+            stem=stem,
+            ext=ext.file_extension,
+        )
