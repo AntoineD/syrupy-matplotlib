@@ -248,6 +248,9 @@ snapshot_matplotlib_remove_text    = false
 snapshot_matplotlib_savefig_kwargs = {}
 ```
 
+A blank value (`snapshot_matplotlib_remove_text =`) counts as unset for every
+option and falls back to the default shown above.
+
 `snapshot_matplotlib_savefig_kwargs` accepts a JSON object whose keys are
 forwarded to `Figure.savefig()`. A per-call
 `snapshot_matplotlib(savefig_kwargs=...)` **replaces** the INI dict wholesale

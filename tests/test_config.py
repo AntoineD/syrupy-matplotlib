@@ -168,3 +168,31 @@ def test_auto_whitespace_only_uses_default(pytester: pytest.Pytester) -> None:
     )
     cfg = resolve_config(pytester.parseconfigure())
     assert cfg.auto is True
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "snapshot_matplotlib_tolerance",
+        "snapshot_matplotlib_style",
+        "snapshot_matplotlib_backend",
+        "snapshot_matplotlib_auto",
+        "snapshot_matplotlib_remove_text",
+        "snapshot_matplotlib_savefig_kwargs",
+    ],
+)
+def test_blank_ini_value_uses_default(pytester: pytest.Pytester, option: str) -> None:
+    """A blank value means "unset" for every option, not just some of them.
+
+    `snapshot_matplotlib_remove_text =` used to abort the run with
+    "Expected true/false" while the same blank under
+    `snapshot_matplotlib_auto` fell back to the default.
+    """
+    pytester.makeini(f"[pytest]\n{option} =\n")
+    cfg = resolve_config(pytester.parseconfigure())
+    assert cfg.tolerance == 0.0
+    assert cfg.style == "default"
+    assert cfg.backend == "agg"
+    assert cfg.auto is True
+    assert cfg.remove_text is False
+    assert cfg.savefig_kwargs == {}

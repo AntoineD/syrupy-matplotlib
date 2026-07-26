@@ -14,6 +14,42 @@ _VALID_REPORTS = frozenset({"html", "json", "basic-html"})
 _TRUE_LITERALS = frozenset({"1", "true", "yes", "on"})
 _FALSE_LITERALS = frozenset({"0", "false", "no", "off"})
 
+DEFAULT_TOLERANCE = "0"
+"""Default `snapshot_matplotlib_tolerance`; matches `matplotlib.testing`."""
+
+DEFAULT_STYLE = "default"
+"""Default `snapshot_matplotlib_style`."""
+
+DEFAULT_BACKEND = "agg"
+"""Default `snapshot_matplotlib_backend`."""
+
+DEFAULT_AUTO = "true"
+"""Default `snapshot_matplotlib_auto`."""
+
+DEFAULT_REMOVE_TEXT = "false"
+"""Default `snapshot_matplotlib_remove_text`; matches `matplotlib.testing`."""
+
+DEFAULT_SAVEFIG_KWARGS = "{}"
+"""Default `snapshot_matplotlib_savefig_kwargs`."""
+
+
+def _read_ini(config: pytest.Config, option: str, default: str) -> str:
+    """Read a string INI option, treating a blank value as unset.
+
+    A user who writes `snapshot_matplotlib_remove_text =` means "leave it
+    alone", not "parse the empty string" — so every option resolves blanks
+    the same way instead of one erroring while another falls back.
+
+    Args:
+        config: The pytest `Config` object.
+        option: INI option name.
+        default: Value to use when the option is unset or blank.
+
+    Returns:
+        The stripped INI value, or *default* when it is empty.
+    """
+    return str(config.getini(option) or "").strip() or default
+
 
 def _parse_bool(value: str, option: str) -> bool:
     """Parse a case-insensitive boolean string.
@@ -99,30 +135,32 @@ def resolve_config(config: pytest.Config) -> Config:
         )
         raise ValueError(msg)
 
-    tolerance_raw = config.getini("snapshot_matplotlib_tolerance")
+    tolerance_raw = _read_ini(
+        config, "snapshot_matplotlib_tolerance", DEFAULT_TOLERANCE
+    )
     try:
         tolerance = float(tolerance_raw)
-    except (TypeError, ValueError) as e:
+    except ValueError as e:
         msg = (
             f"Invalid snapshot_matplotlib_tolerance value {tolerance_raw!r}. "
             "Expected a number."
         )
         raise ValueError(msg) from e
-    style = str(config.getini("snapshot_matplotlib_style"))
-    backend = str(config.getini("snapshot_matplotlib_backend"))
+    style = _read_ini(config, "snapshot_matplotlib_style", DEFAULT_STYLE)
+    backend = _read_ini(config, "snapshot_matplotlib_backend", DEFAULT_BACKEND)
 
-    # Strip before the emptiness check: an all-whitespace value is "unset", not
-    # a malformed boolean, and must fall back to the default like "" does.
-    auto_ini: str = str(config.getini("snapshot_matplotlib_auto") or "").strip()
-    auto = _parse_bool(auto_ini, "snapshot_matplotlib_auto") if auto_ini else True
+    auto = _parse_bool(
+        _read_ini(config, "snapshot_matplotlib_auto", DEFAULT_AUTO),
+        "snapshot_matplotlib_auto",
+    )
 
     remove_text = _parse_bool(
-        str(config.getini("snapshot_matplotlib_remove_text")),
+        _read_ini(config, "snapshot_matplotlib_remove_text", DEFAULT_REMOVE_TEXT),
         "snapshot_matplotlib_remove_text",
     )
 
-    savefig_raw = (
-        str(config.getini("snapshot_matplotlib_savefig_kwargs")).strip() or "{}"
+    savefig_raw = _read_ini(
+        config, "snapshot_matplotlib_savefig_kwargs", DEFAULT_SAVEFIG_KWARGS
     )
     try:
         savefig_kwargs = json.loads(savefig_raw)

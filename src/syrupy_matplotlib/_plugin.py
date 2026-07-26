@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+from . import _config
 from . import _xdist
 from ._config import resolve_config
 from ._reporting import ResultCollector
@@ -90,28 +91,34 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         ),
     )
     parser.addini(
-        "snapshot_matplotlib_tolerance", help="Default RMS tolerance.", default="0"
+        "snapshot_matplotlib_tolerance",
+        help="Default RMS tolerance.",
+        default=_config.DEFAULT_TOLERANCE,
     )
     parser.addini(
-        "snapshot_matplotlib_style", help="Default matplotlib style.", default="default"
+        "snapshot_matplotlib_style",
+        help="Default matplotlib style.",
+        default=_config.DEFAULT_STYLE,
     )
     parser.addini(
-        "snapshot_matplotlib_backend", help="Default matplotlib backend.", default="agg"
+        "snapshot_matplotlib_backend",
+        help="Default matplotlib backend.",
+        default=_config.DEFAULT_BACKEND,
     )
     parser.addini(
         "snapshot_matplotlib_auto",
         help="Default auto-discover / auto-assert / auto-close behavior (true/false).",
-        default="",
+        default=_config.DEFAULT_AUTO,
     )
     parser.addini(
         "snapshot_matplotlib_remove_text",
         help="Default remove-text behavior (true/false).",
-        default="false",
+        default=_config.DEFAULT_REMOVE_TEXT,
     )
     parser.addini(
         "snapshot_matplotlib_savefig_kwargs",
         help="Default Figure.savefig() kwargs as a JSON object, e.g. '{\"dpi\": 150}'.",
-        default="{}",
+        default=_config.DEFAULT_SAVEFIG_KWARGS,
     )
 
 
