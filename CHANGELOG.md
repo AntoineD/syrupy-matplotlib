@@ -6,7 +6,7 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-07-26
 
 ### Added
 
@@ -14,10 +14,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   move the artifact directory, which was hardcoded to `figure-report/` under
   the rootdir. Two invocations sharing one config file (`tox -p`, two CI jobs
   on one checkout) wrote the same artifact paths for the same test and raced
-  on them; 0.2.0 fixed that for xdist result fragments but not for the images
-  and reports. The flag wins over the INI option; relative values resolve
-  against the rootdir. The rootdir itself is rejected — see the clearing
-  behavior below.
+  on them — the fragment sweep below covered the xdist result fragments but
+  not the images and reports. The flag wins over the INI option; relative
+  values resolve against the rootdir. The rootdir itself is rejected — see
+  the clearing behavior below.
 
 - `snapshot_matplotlib_style` composes a comma-separated list, applied left
   to right the way `plt.style.use()` does. The README pointed at matplotlib's
@@ -25,6 +25,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   raw string to `plt.style.context()`, which raised a bare `OSError` during
   fixture setup and errored out every test in the suite. `Config.style` and
   `SnapshotParams.style` are tuples now, not strings.
+
+- `snapshot_matplotlib.set_defaults(tolerance=..., savefig_kwargs=...,
+  remove_text=..., auto=...)` sets defaults for every assertion in the test.
+  The wrapper-fixture recipe in the README returned
+  `snapshot_matplotlib(tolerance=...)`, whose overrides syrupy reverts after
+  the next assertion — so a wrapper meant to loosen a whole package loosened
+  one assertion per test and left the rest at the INI default.
 
 ### Fixed
 
@@ -52,25 +59,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   take the fallback `"main"` UID while the controller merged on the generated
   one, and every worker's results would vanish from the terminal summary and
   from every report with nothing logged.
-
-### Changed
-
-- Documented the real option precedence. "CLI flags override INI options"
-  described a layering that did not exist — `--snapshot-matplotlib-report`
-  had no INI counterpart and no INI option had a CLI one.
-
-## [0.2.0] - 2026-07-26
-
-### Added
-
-- `snapshot_matplotlib.set_defaults(tolerance=..., savefig_kwargs=...,
-  remove_text=..., auto=...)` sets defaults for every assertion in the test.
-  The wrapper-fixture recipe in the README returned
-  `snapshot_matplotlib(tolerance=...)`, whose overrides syrupy reverts after
-  the next assertion — so a wrapper meant to loosen a whole package loosened
-  one assertion per test and left the rest at the INI default.
-
-### Fixed
 
 - A missing baseline now writes the rendered figure to `figure-report/` and
   links it from the report, as documented. Syrupy skips the extension's
@@ -145,6 +133,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its values, so they track matplotlib's choices across releases.
 
 ### Changed
+
+- Documented the real option precedence. "CLI flags override INI options"
+  described a layering that did not exist — `--snapshot-matplotlib-report`
+  had no INI counterpart and no INI option had a CLI one.
 
 - Pytest startup no longer pays for matplotlib. The plugin entry point
   imported matplotlib and syrupy eagerly (~400 ms warm) on every pytest
