@@ -652,7 +652,7 @@ def test_auto_warns_when_nothing_compared(pytester: pytest.Pytester) -> None:
         """)
     )
     result = pytester.runpytest("--snapshot-update", "-v")
-    result.assert_outcomes(passed=1, warnings=1)
+    result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*snapshot_matplotlib compared no figure*"])
 
 
@@ -671,7 +671,10 @@ def test_explicit_assertion_of_bare_figure_does_not_warn(
         """)
     )
     result = pytester.runpytest("--snapshot-update", "-v")
-    result.assert_outcomes(passed=1, warnings=0)
+    result.assert_outcomes(passed=1)
+    # Counting warnings would be hostage to whatever the installed matplotlib
+    # deprecates this release; the message is the contract.
+    assert "compared no figure" not in result.stdout.str()
 
 
 def test_auto_off_does_not_warn(pytester: pytest.Pytester) -> None:
@@ -683,4 +686,5 @@ def test_auto_off_does_not_warn(pytester: pytest.Pytester) -> None:
         """)
     )
     result = pytester.runpytest("--snapshot-update", "-v")
-    result.assert_outcomes(passed=1, warnings=0)
+    result.assert_outcomes(passed=1)
+    assert "compared no figure" not in result.stdout.str()

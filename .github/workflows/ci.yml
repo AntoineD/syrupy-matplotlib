@@ -55,3 +55,37 @@ jobs:
           name: py${{ matrix.python-version }}
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  # The package claims "OS Independent" and baseline filenames embed
+  # parametrize ids, whose sanitization differs off Linux. One Python is
+  # enough to catch a path or filename problem; the version matrix is the
+  # ubuntu job's business.
+  test-os:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev --python 3.13
+      # No --cov here: .coveragerc resolves data_file through ${PWD}, which
+      # the Windows runner's shell does not set.
+      - run: uv run pytest
+
+  # Proves the dependency floors in pyproject.toml are actually installable
+  # and green, instead of being an untested claim.
+  min-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: >
+          uv run --isolated --python 3.10 --with 'numpy==1.26'
+          --resolution lowest-direct pytest
