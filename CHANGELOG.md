@@ -6,6 +6,59 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `--snapshot-matplotlib-report-dir` and `snapshot_matplotlib_report_dir`
+  move the artifact directory, which was hardcoded to `figure-report/` under
+  the rootdir. Two invocations sharing one config file (`tox -p`, two CI jobs
+  on one checkout) wrote the same artifact paths for the same test and raced
+  on them; 0.2.0 fixed that for xdist result fragments but not for the images
+  and reports. The flag wins over the INI option; relative values resolve
+  against the rootdir. The rootdir itself is rejected — see the clearing
+  behavior below.
+
+- `snapshot_matplotlib_style` composes a comma-separated list, applied left
+  to right the way `plt.style.use()` does. The README pointed at matplotlib's
+  own `("classic", "_classic_test_patch")` pairing, but writing it handed the
+  raw string to `plt.style.context()`, which raised a bare `OSError` during
+  fixture setup and errored out every test in the suite. `Config.style` and
+  `SnapshotParams.style` are tuples now, not strings.
+
+### Fixed
+
+- An auto-asserted figure whose serialization *raised* now reports the real
+  error. Syrupy's `_assert` catches every exception and returns `False`, so a
+  rejected `savefig_kwargs` reached the auto path indistinguishable from a
+  pixel mismatch and was reported as "figure mismatch" — blaming the figure
+  for a config error and sending the user after a diff that was never
+  computed. The explicit `assert fig == snapshot_matplotlib` path already
+  surfaced the traceback.
+
+- The report directory now describes the run that just finished. Only empty
+  subdirectories were pruned, so a failing run's `report.html` and its
+  actual/baseline/diff PNGs survived a later green run, still listing
+  failures that were fixed; a CI job archiving the directory out of a cached
+  workspace published a report contradicting its own run. Reports and `*.png`
+  artifacts are cleared at session start, on the controller only. Result
+  fragments keep their age gate, where deleting a live session's file would
+  lose results for good.
+
+- The xdist session UID is resolved in `pytest_configure` instead of
+  `pytest_sessionstart`. xdist calls `pytest_configure_node` from
+  `DSession.pytest_sessionstart`, so the old placement worked only because
+  that hookimpl is marked `trylast`. Were it ever `tryfirst`, workers would
+  take the fallback `"main"` UID while the controller merged on the generated
+  one, and every worker's results would vanish from the terminal summary and
+  from every report with nothing logged.
+
+### Changed
+
+- Documented the real option precedence. "CLI flags override INI options"
+  described a layering that did not exist — `--snapshot-matplotlib-report`
+  had no INI counterpart and no INI option had a CLI one.
+
 ## [0.2.0] - 2026-07-26
 
 ### Added
