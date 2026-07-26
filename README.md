@@ -262,7 +262,10 @@ rather than merging per key — pass every key you need, including any INI
 defaults you want to keep. Per-call `remove_text` / `tolerance` likewise
 override the INI defaults for that one assertion.
 
-CLI flags override INI options.
+Precedence runs per-call `snapshot_matplotlib(...)` → `set_defaults()` → INI
+→ built-in default. No INI option has a CLI counterpart:
+`--snapshot-matplotlib-report` is CLI-only, and everything in the table above
+is INI-only.
 
 ## Relation to `matplotlib.testing`
 

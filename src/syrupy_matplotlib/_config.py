@@ -127,8 +127,10 @@ class Config:
 def resolve_config(config: pytest.Config) -> Config:
     """Build a `Config` from CLI options and INI values.
 
-    CLI flags take precedence over INI options; INI options take precedence
-    over built-in defaults.
+    The two sources are disjoint rather than layered: `report` comes only
+    from `--snapshot-matplotlib-report`, every other field only from its
+    `snapshot_matplotlib_*` INI option, each falling back to its built-in
+    default. Per-assertion overrides are applied later, by `SnapshotParams`.
 
     Args:
         config: The pytest `Config` object supplied to `pytest_configure`.
