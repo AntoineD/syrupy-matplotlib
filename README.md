@@ -160,6 +160,25 @@ def test_one_liner(snapshot_matplotlib):
 Figures you already asserted with `assert fig == snapshot_matplotlib` are
 skipped by the auto path (no double-counted baselines) but are still closed.
 
+> **Auto-discovery only sees pyplot-managed figures.** It reads matplotlib's
+> global figure manager, which tracks figures created through `plt.figure()`,
+> `plt.subplots()`, and friends. A figure built directly — `fig = Figure()`,
+> the usual shape in embedded or library code — is invisible to it and must
+> be asserted explicitly:
+>
+> ```python
+> from matplotlib.figure import Figure
+>
+>
+> def test_embedded(snapshot_matplotlib):
+>     fig = Figure()
+>     fig.subplots().plot([1, 2, 3])
+>     assert fig == snapshot_matplotlib  # required: auto won't find it
+> ```
+>
+> A test that requests the fixture, has auto enabled, and ends up comparing
+> no figure at all emits a warning rather than passing silently.
+
 Disable the auto behavior at two levels (per-test wins over INI):
 
 ```python

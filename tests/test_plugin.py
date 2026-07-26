@@ -634,3 +634,53 @@ def test_auto_asserts_multiple_figures(pytester: pytest.Pytester) -> None:
     pngs = sorted(p.name for p in snap_dir.glob("*.png"))
     assert "test_two_figs.png" in pngs
     assert "test_two_figs.1.png" in pngs
+
+
+def test_auto_warns_when_nothing_compared(pytester: pytest.Pytester) -> None:
+    """A bare `Figure()` is invisible to auto-discovery, so the run warns.
+
+    Without the warning the test passes green while comparing nothing at
+    all — the failure mode is indistinguishable from a real pass.
+    """
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            from matplotlib.figure import Figure
+
+            def test_bare_figure(snapshot_matplotlib):
+                fig = Figure()
+                fig.subplots().plot([1, 2, 3])
+        """)
+    )
+    result = pytester.runpytest("--snapshot-update", "-v")
+    result.assert_outcomes(passed=1, warnings=1)
+    result.stdout.fnmatch_lines(["*snapshot_matplotlib compared no figure*"])
+
+
+def test_explicit_assertion_of_bare_figure_does_not_warn(
+    pytester: pytest.Pytester,
+) -> None:
+    """An explicit assertion counts as a comparison even for a non-pyplot figure."""
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            from matplotlib.figure import Figure
+
+            def test_bare_figure(snapshot_matplotlib):
+                fig = Figure()
+                fig.subplots().plot([1, 2, 3])
+                assert fig == snapshot_matplotlib
+        """)
+    )
+    result = pytester.runpytest("--snapshot-update", "-v")
+    result.assert_outcomes(passed=1, warnings=0)
+
+
+def test_auto_off_does_not_warn(pytester: pytest.Pytester) -> None:
+    """`auto=False` opts out of the check along with the rest of auto mode."""
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            def test_no_figures(snapshot_matplotlib):
+                snapshot_matplotlib(auto=False)
+        """)
+    )
+    result = pytester.runpytest("--snapshot-update", "-v")
+    result.assert_outcomes(passed=1, warnings=0)

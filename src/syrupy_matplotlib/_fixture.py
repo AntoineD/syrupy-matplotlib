@@ -13,6 +13,7 @@ figures are drawn under reproducible settings.
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
@@ -139,8 +140,13 @@ def run_auto_assertions(item: pytest.Item) -> None:
     if not assertion._mpl_auto:
         return
 
+    new_figures = collect_new_figures(baseline_fig_nums)
+    if not new_figures and not assertion._mpl_asserted_figs:
+        _warn_nothing_compared(item)
+        return
+
     failures: list[str] = []
-    for fig in collect_new_figures(baseline_fig_nums):
+    for fig in new_figures:
         if fig in assertion._mpl_asserted_figs:
             continue
         if fig == assertion:
@@ -157,3 +163,24 @@ def run_auto_assertions(item: pytest.Item) -> None:
             "auto-assertion failed for figures:\n" + "\n".join(failures),
             pytrace=False,
         )
+
+
+def _warn_nothing_compared(item: pytest.Item) -> None:
+    """Warn that a test requested the fixture but compared no figure.
+
+    Auto-discovery reads `matplotlib._pylab_helpers.Gcf`, which only knows
+    about pyplot-managed figures. A figure built as `Figure()` — the usual
+    shape for embedded or library code — is invisible to it, so a test that
+    never asserts explicitly passes without comparing anything at all.
+    Silence there is indistinguishable from a green run.
+
+    Args:
+        item: The pytest item being executed.
+    """
+    warnings.warn(
+        f"{item.nodeid}: snapshot_matplotlib compared no figure. Auto-discovery "
+        "only sees pyplot-managed figures (plt.figure/plt.subplots); assert a "
+        "bare Figure() explicitly with `assert fig == snapshot_matplotlib`, or "
+        "pass `auto=False` if the test intentionally compares nothing.",
+        stacklevel=1,
+    )
