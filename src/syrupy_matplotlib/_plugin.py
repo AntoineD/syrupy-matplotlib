@@ -100,6 +100,21 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "html (default), json, basic-html."
         ),
     )
+    group.addoption(
+        "--snapshot-matplotlib-report-dir",
+        metavar="DIR",
+        default=None,
+        help=(
+            "Directory for comparison artifacts and reports "
+            f"(default: {_config.DEFAULT_REPORT_DIR}, relative to the rootdir). "
+            "Overrides snapshot_matplotlib_report_dir."
+        ),
+    )
+    parser.addini(
+        "snapshot_matplotlib_report_dir",
+        help="Default directory for comparison artifacts and reports.",
+        default=_config.DEFAULT_REPORT_DIR,
+    )
     parser.addini(
         "snapshot_matplotlib_tolerance",
         help="Default RMS tolerance.",
@@ -163,7 +178,7 @@ def pytest_configure(config: pytest.Config) -> None:
         mpl_config = resolve_config(config)
     except ValueError as e:
         raise pytest.UsageError(str(e)) from e
-    diff_dir = Path(config.rootpath) / "figure-report"
+    diff_dir = mpl_config.report_dir
 
     # The session UID has to exist before xdist calls `pytest_configure_node`,
     # which it does from `DSession.pytest_sessionstart`. Generating it in our

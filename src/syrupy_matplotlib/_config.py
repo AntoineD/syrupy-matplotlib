@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -31,6 +32,9 @@ DEFAULT_REMOVE_TEXT = "false"
 
 DEFAULT_SAVEFIG_KWARGS = "{}"
 """Default `snapshot_matplotlib_savefig_kwargs`."""
+
+DEFAULT_REPORT_DIR = "figure-report"
+"""Default `snapshot_matplotlib_report_dir`, resolved against the rootpath."""
 
 
 def _read_ini(config: pytest.Config, option: str, default: str) -> str:
@@ -123,12 +127,18 @@ class Config:
     savefig_kwargs: dict[str, Any]
     """Default extra keyword arguments forwarded to `Figure.savefig()`."""
 
+    report_dir: Path
+    """Absolute directory for comparison artifacts and generated reports.
+    Owned by the plugin: its reports and `*.png` files are cleared at the
+    start of every session."""
+
 
 def resolve_config(config: pytest.Config) -> Config:
     """Build a `Config` from CLI options and INI values.
 
-    The two sources are disjoint rather than layered: `report` comes only
-    from `--snapshot-matplotlib-report`, every other field only from its
+    `report_dir` reads the CLI flag first and falls back to the INI option.
+    The rest are single-source: `report` comes only from
+    `--snapshot-matplotlib-report`, every other field only from its
     `snapshot_matplotlib_*` INI option, each falling back to its built-in
     default. Per-assertion overrides are applied later, by `SnapshotParams`.
 
@@ -140,8 +150,9 @@ def resolve_config(config: pytest.Config) -> Config:
 
     Raises:
         ValueError: If `--snapshot-matplotlib-report` contains an unrecognised
-            value, if `snapshot_matplotlib_tolerance` is not a number, or if
-            `snapshot_matplotlib_savefig_kwargs` is not a JSON object.
+            value, if `snapshot_matplotlib_tolerance` is not a number, if
+            `snapshot_matplotlib_savefig_kwargs` is not a JSON object, or if
+            the report directory resolves to the pytest rootpath.
     """
     report_raw: str = (
         config.getoption("--snapshot-matplotlib-report", default=None) or ""
@@ -201,4 +212,40 @@ def resolve_config(config: pytest.Config) -> Config:
         auto=auto,
         remove_text=remove_text,
         savefig_kwargs=savefig_kwargs,
+        report_dir=_resolve_report_dir(config),
     )
+
+
+def _resolve_report_dir(config: pytest.Config) -> Path:
+    """Resolve the artifact directory from the CLI flag, then the INI option.
+
+    A relative value is anchored at the pytest rootpath; an absolute one is
+    taken as-is. The flag exists because the racing case is two *invocations*
+    sharing one config file — `tox -p`, two CI jobs on one checkout — which
+    otherwise write the same artifact paths for the same test.
+
+    Args:
+        config: The pytest `Config` object.
+
+    Returns:
+        The absolute artifact directory.
+
+    Raises:
+        ValueError: If the directory resolves to the pytest rootpath itself.
+    """
+    raw = config.getoption(
+        "--snapshot-matplotlib-report-dir", default=None
+    ) or _read_ini(config, "snapshot_matplotlib_report_dir", DEFAULT_REPORT_DIR)
+    rootpath = Path(config.rootpath)
+    report_dir = rootpath / raw
+    if report_dir == rootpath:
+        # The plugin clears its own reports and every `*.png` under this
+        # directory at session start; pointed at the rootpath that would
+        # walk the whole project.
+        msg = (
+            f"Invalid report directory {raw!r}: it resolves to the pytest "
+            "rootpath. The plugin owns this directory and clears its reports "
+            "and *.png files at session start, so it must be a subdirectory."
+        )
+        raise ValueError(msg)
+    return report_dir

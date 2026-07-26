@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from syrupy_matplotlib._config import Config
@@ -26,6 +27,7 @@ def _cfg(
         auto=True,
         remove_text=remove_text,
         savefig_kwargs=savefig_kwargs if savefig_kwargs is not None else {},
+        report_dir=Path("figure-report"),
     )
 
 

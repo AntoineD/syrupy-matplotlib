@@ -205,11 +205,27 @@ Accepted boolean literals: `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0`.
 | `--snapshot-details` | syrupy | List unused snapshots in the summary. |
 | `--snapshot-matplotlib-report` | this plugin | Generate an HTML report in `figure-report/`. |
 | `--snapshot-matplotlib-report=html,json` | this plugin | Select report formats (`html`, `json`, `basic-html`). |
+| `--snapshot-matplotlib-report-dir` | this plugin | Where artifacts and reports land (default `figure-report/`). |
 
 > **Warning:** Passing `--snapshot-ignore-file-extensions=png` silently
 > disables figure discovery. The plugin emits a warning if this is detected.
 
-### `figure-report/` contents
+### The report directory
+
+`figure-report/` is the default; `--snapshot-matplotlib-report-dir=DIR` or
+`snapshot_matplotlib_report_dir` moves it. A relative value is resolved
+against the rootdir.
+
+> **The plugin owns this directory.** At the start of every session it
+> deletes its own reports and every `*.png` beneath it, so a run that goes
+> green cannot leave the previous run's failure report standing. Point it at
+> a directory of its own — the rootdir itself is rejected.
+
+Give concurrent runs that share a checkout (`tox -p`, two CI jobs) their own
+directory: they otherwise write the same artifact paths for the same test
+and race on them.
+
+#### Contents
 
 Without `--snapshot-matplotlib-report`, only failed comparisons leave
 artifacts under `figure-report/`: the rendered output (`<stem>.png`),
@@ -246,6 +262,7 @@ snapshot_matplotlib_backend        = agg
 snapshot_matplotlib_auto           = true
 snapshot_matplotlib_remove_text    = false
 snapshot_matplotlib_savefig_kwargs = {}
+snapshot_matplotlib_report_dir     = figure-report
 ```
 
 A blank value (`snapshot_matplotlib_remove_text =`) counts as unset for every
@@ -263,9 +280,9 @@ defaults you want to keep. Per-call `remove_text` / `tolerance` likewise
 override the INI defaults for that one assertion.
 
 Precedence runs per-call `snapshot_matplotlib(...)` → `set_defaults()` → INI
-→ built-in default. No INI option has a CLI counterpart:
-`--snapshot-matplotlib-report` is CLI-only, and everything in the table above
-is INI-only.
+→ built-in default. Only `snapshot_matplotlib_report_dir` has a CLI
+counterpart, which wins over it; `--snapshot-matplotlib-report` is CLI-only,
+and the rest are INI-only.
 
 ## Relation to `matplotlib.testing`
 

@@ -287,3 +287,36 @@ def test_update_run_clears_the_previous_failure_report(
     pytester.runpytest("--snapshot-update").assert_outcomes(passed=2)
 
     assert not (pytester.path / "figure-report").exists()
+
+
+def test_report_dir_flag_relocates_artifacts(pytester: pytest.Pytester) -> None:
+    """Reports and comparison images follow `--snapshot-matplotlib-report-dir`.
+
+    Two invocations sharing one config file — `tox -p`, two CI jobs on one
+    checkout — otherwise write the same artifact paths for the same test and
+    race on them.
+    """
+    pytester.makepyfile(test_plots=REPORT_TEST)
+    pytester.runpytest("--snapshot-update")
+
+    pytester.makepyfile(test_plots=CHANGED_TEST)
+    pytester.runpytest("--snapshot-matplotlib-report-dir=build/run-a").assert_outcomes(
+        passed=1, failed=1
+    )
+
+    target = pytester.path / "build" / "run-a"
+    assert (target / "report.html").exists()
+    assert list(target.rglob("*-diff.png"))
+    assert not (pytester.path / "figure-report").exists()
+
+
+def test_report_dir_ini_relocates_artifacts(pytester: pytest.Pytester) -> None:
+    """The INI option covers the project-wide rename."""
+    pytester.makepyfile(test_plots=REPORT_TEST)
+    pytester.makeini("[pytest]\nsnapshot_matplotlib_report_dir = .figures\n")
+    pytester.runpytest("--snapshot-update")
+
+    pytester.runpytest("--snapshot-matplotlib-report=json").assert_outcomes(passed=2)
+
+    assert (pytester.path / ".figures" / "results.json").exists()
+    assert not (pytester.path / "figure-report").exists()

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from syrupy_matplotlib._config import resolve_config
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_defaults(pytester: pytest.Pytester) -> None:
@@ -211,3 +216,39 @@ def test_style_accepts_a_composed_list(pytester: pytest.Pytester) -> None:
     )
     cfg = resolve_config(pytester.parseconfigure())
     assert cfg.style == ("classic", "_classic_test_patch")
+
+
+def test_report_dir_defaults_under_rootpath(pytester: pytest.Pytester) -> None:
+    cfg = resolve_config(pytester.parseconfigure())
+    assert cfg.report_dir == pytester.path / "figure-report"
+
+
+def test_report_dir_ini_is_relative_to_rootpath(pytester: pytest.Pytester) -> None:
+    pytester.makeini("[pytest]\nsnapshot_matplotlib_report_dir = build/figures\n")
+    cfg = resolve_config(pytester.parseconfigure())
+    assert cfg.report_dir == pytester.path / "build" / "figures"
+
+
+def test_report_dir_cli_overrides_ini(pytester: pytest.Pytester) -> None:
+    """The racing case is two invocations sharing one config file."""
+    pytester.makeini("[pytest]\nsnapshot_matplotlib_report_dir = from-ini\n")
+    cfg = resolve_config(
+        pytester.parseconfigure("--snapshot-matplotlib-report-dir=from-cli")
+    )
+    assert cfg.report_dir == pytester.path / "from-cli"
+
+
+def test_report_dir_accepts_an_absolute_path(
+    pytester: pytest.Pytester, tmp_path: Path
+) -> None:
+    target = tmp_path / "elsewhere"
+    cfg = resolve_config(
+        pytester.parseconfigure(f"--snapshot-matplotlib-report-dir={target}")
+    )
+    assert cfg.report_dir == target
+
+
+def test_report_dir_rejects_the_rootpath(pytester: pytest.Pytester) -> None:
+    """The plugin clears `*.png` under this directory; the rootpath is off limits."""
+    with pytest.raises(pytest.UsageError, match="resolves to the pytest rootpath"):
+        pytester.parseconfigure("--snapshot-matplotlib-report-dir=.")
