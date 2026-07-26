@@ -688,3 +688,26 @@ def test_auto_off_does_not_warn(pytester: pytest.Pytester) -> None:
     result = pytester.runpytest("--snapshot-update", "-v")
     result.assert_outcomes(passed=1)
     assert "compared no figure" not in result.stdout.str()
+
+
+def test_auto_reports_serialization_error_not_mismatch(
+    pytester: pytest.Pytester,
+) -> None:
+    """A serialize failure under auto mode names the real error.
+
+    Syrupy's `_assert` swallows every exception and returns `False`, so the
+    auto path sees a plain failure with no comparison message behind it.
+    Falling back to "figure mismatch" would blame the figure for a bad
+    `savefig_kwargs` and send the user hunting a pixel diff that never ran.
+    """
+    pytester.makepyfile(test_plots=AUTO_TEST)
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=1)
+
+    pytester.makeini(
+        '[pytest]\nsnapshot_matplotlib_savefig_kwargs = {"format": "pdf"}\n'
+    )
+    result = pytester.runpytest()
+
+    result.assert_outcomes(failed=1, errors=0)
+    result.stdout.fnmatch_lines(["*ValueError: savefig_kwargs must not set 'format'*"])
+    assert "figure mismatch" not in result.stdout.str()

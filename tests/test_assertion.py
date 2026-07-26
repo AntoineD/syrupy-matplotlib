@@ -149,3 +149,16 @@ def test_call_auto_override_persists_across_post_assert(
 
     snap._post_assert()
     assert snap._mpl_auto is False
+
+
+def test_describe_failure_falls_back_without_an_execution(
+    pytester: pytest.Pytester,
+) -> None:
+    """No execution recorded yet → the comparison message is the only source."""
+    from syrupy_matplotlib._fixture import _describe_failure
+
+    snap = _make_assertion(pytester)
+    ext = MplFigureExtension()
+    ext._mpl_last_failure_message = "Images differ (RMS 3.000 > tolerance 0.0)"
+
+    assert _describe_failure(snap, ext) == "Images differ (RMS 3.000 > tolerance 0.0)"

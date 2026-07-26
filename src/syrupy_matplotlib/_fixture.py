@@ -155,14 +155,42 @@ def run_auto_assertions(item: pytest.Item) -> None:
         if not isinstance(ext, MplFigureExtension):  # pragma: no cover
             msg = f"unexpected extension type: {type(ext).__name__}"
             raise RuntimeError(msg)  # ruff: ignore[type-check-without-type-error]
-        msg = ext._mpl_last_failure_message or "figure mismatch"
-        failures.append(f"figure #{fig.number}: {msg}")
+        failures.append(f"figure #{fig.number}: {_describe_failure(assertion, ext)}")
 
     if failures:
         pytest.fail(
             "auto-assertion failed for figures:\n" + "\n".join(failures),
             pytrace=False,
         )
+
+
+def _describe_failure(assertion: MplSnapshotAssertion, ext: MplFigureExtension) -> str:
+    """Return the text explaining why the assertion that just ran failed.
+
+    Syrupy's `_assert` catches every exception and returns `False`, so a
+    serialization error — a rejected `savefig_kwargs`, a backend that cannot
+    render — arrives here indistinguishable from a pixel mismatch. In that
+    case `matches()` never ran and left no comparison message, and reporting
+    the fallback would tell the user "figure mismatch" for a figure that was
+    never compared. The explicit `assert fig == snapshot_matplotlib` path
+    surfaces the traceback through syrupy's own diff; the auto path has to
+    read it off the execution record.
+
+    `_execution_results` and `_executions` are syrupy private API, covered by
+    the same `syrupy>=5.1,<6` pin that `_assertion._assert` relies on.
+
+    Args:
+        assertion: The fixture's assertion object.
+        ext: The stamped extension instance.
+
+    Returns:
+        The exception text when the assertion raised, otherwise the message
+        `matches()` recorded for the failed comparison.
+    """
+    latest = assertion._execution_results.get(assertion._executions - 1)
+    if latest is not None and latest.exception is not None:
+        return f"{type(latest.exception).__name__}: {latest.exception}"
+    return ext._mpl_last_failure_message or "figure mismatch"
 
 
 def _warn_nothing_compared(item: pytest.Item) -> None:
