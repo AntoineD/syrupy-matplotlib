@@ -165,17 +165,31 @@ def pytest_configure(config: pytest.Config) -> None:
         raise pytest.UsageError(str(e)) from e
     diff_dir = Path(config.rootpath) / "figure-report"
 
+    # The session UID has to exist before xdist calls `pytest_configure_node`,
+    # which it does from `DSession.pytest_sessionstart`. Generating it in our
+    # own `pytest_sessionstart` happens to work only while xdist keeps that
+    # hookimpl `trylast`; were it ever `tryfirst`, workers would fall back to
+    # the `"main"` UID while the controller merged on the real one, and every
+    # worker's results would vanish from the summary and the reports without
+    # a word. `pytest_configure` runs on both sides — with `workerinput`
+    # already attached on a worker — before any of that, so no hook order
+    # can break it.
+    is_xdist = config.pluginmanager.hasplugin("xdist")
+    if is_xdist:
+        _xdist.setup_session(config)
+
     plugin = Plugin(
         config=mpl_config,
         diff_dir=diff_dir,
         rootpath=Path(config.rootpath),
         update_snapshots=bool(config.option.update_snapshots),
+        is_xdist_worker=is_xdist and _xdist._is_worker(config),
     )
     config.pluginmanager.register(plugin, name="syrupy_matplotlib_plugin")
 
     _warn_if_png_ignored(config)
 
-    if config.pluginmanager.hasplugin("xdist"):
+    if is_xdist:
         config.pluginmanager.register(
             _xdist.XdistCoordinator(), name="syrupy_matplotlib_xdist"
         )
@@ -347,19 +361,21 @@ class Plugin:
         diff_dir: Path,
         rootpath: Path,
         update_snapshots: bool,
+        is_xdist_worker: bool = False,
     ) -> None:
         """Args:
         config: Resolved plugin configuration.
         diff_dir: Directory where pixel-comparison artifacts are written.
         rootpath: Pytest rootpath, used to namespace artifact paths.
         update_snapshots: Value of `--snapshot-update`.
+        is_xdist_worker: `True` when this process is an xdist worker.
         """  # ruff: ignore[missing-blank-line-after-summary]
         self.config = config
         self.diff_dir = diff_dir
         self.rootpath = rootpath
         self.update_snapshots = update_snapshots
         self.collector = ResultCollector(results_root=diff_dir)
-        self._is_xdist_worker = False
+        self._is_xdist_worker = is_xdist_worker
 
     def bind_extension_class(self) -> None:
         """Stamp session-wide state onto `MplFigureExtension` class attributes.
@@ -406,14 +422,14 @@ class Plugin:
         return result
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
-        """Initialise xdist state and clear the previous session's leftovers.
+        """Clear what an earlier session left in the artifact directory.
+
+        Controller-only: a worker shares the directory with its siblings and
+        would delete artifacts they are still writing.
 
         Args:
-            session: The current pytest session.
+            session: The current pytest session (unused).
         """
-        if session.config.pluginmanager.hasplugin("xdist"):
-            _xdist.setup_session(session.config)
-            self._is_xdist_worker = _xdist._is_worker(session.config)
         if not self._is_xdist_worker:
             _sweep_stale_fragments(self.diff_dir)
             _clear_previous_artifacts(self.diff_dir)
