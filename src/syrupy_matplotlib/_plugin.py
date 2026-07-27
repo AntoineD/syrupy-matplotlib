@@ -293,7 +293,8 @@ def _print_comparison_summary(
     terminalreporter.write_sep("=", "snapshot-matplotlib")
     line = _format_category_line("Images", ok_images, created_images, failed_images)
     if deleted:
-        line += f", {len(deleted)} variant deleted"
+        noun = "variant" if len(deleted) == 1 else "variants"
+        line += f", {len(deleted)} {noun} deleted"
     variants_used = sorted({r.baseline_variant for r in records if r.baseline_variant})
     if variants_used:
         # Only when a variant baseline was really compared against: a suite
