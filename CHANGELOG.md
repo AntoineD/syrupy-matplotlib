@@ -132,6 +132,49 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   derive the expected rcParams by running the helper instead of hardcoding
   its values, so they track matplotlib's choices across releases.
 
+- The report directory may not resolve to the rootpath **or any of its
+  ancestors**. The old guard compared the unresolved path to the rootpath
+  alone, so `--snapshot-matplotlib-report-dir=..` passed — and the
+  session-start sweep then deleted every `*.png` under the rootpath's
+  parent, the project's own `__snapshots__/` baselines included.
+
+- A truncated xdist result fragment no longer aborts the session-end merge.
+  Fragments are written to a temp name and renamed into place, and the
+  controller discards an unparsable fragment with a warning. A worker killed
+  mid-write (OOM, timeout) previously fed broken JSON into the merge, and
+  the resulting `INTERNALERROR` lost every worker's summary and reports
+  instead of one worker's records.
+
+- The warning about `--snapshot-ignore-file-extensions=png` reaches pytest's
+  warnings summary. It was raised before pytest installs its warning
+  capture, so it bypassed the summary and only surfaced on stderr when the
+  user's filters happened to allow it.
+
+- Auto-discovery can no longer lose a figure to number reuse. matplotlib
+  numbers a new figure `max(live numbers) + 1`, so a test that closed a
+  pre-existing figure handed its number to the next figure it opened — which
+  the number-based baseline set then treated as pre-existing: no
+  auto-assert, no auto-close, test green with nothing compared. Pre-existing
+  figures are tracked by object liveness now, as the asserted set already
+  was.
+
+- `--collect-only` no longer wipes the previous run's failure report and
+  comparison artifacts. A collection pass runs no comparison and writes
+  nothing, so the session-start clearing destroyed exactly the diagnostics
+  the user was reading.
+
+- Image URLs in the HTML report are percent-encoded, so a `#` or `?` in a
+  parametrize id no longer truncates the link and breaks the image card.
+
+- A negative `snapshot_matplotlib_tolerance` — or per-call
+  `snapshot_matplotlib(tolerance=...)` — is rejected up front. It silently
+  failed every comparison, byte-identical images included, with nothing
+  pointing at the setting.
+
+- `dir(syrupy_matplotlib)` advertises the lazy public exports; PEP 562's
+  `__getattr__` needs the matching `__dir__` for completion and doc tooling
+  to see them.
+
 ### Changed
 
 - Documented the real option precedence. "CLI flags override INI options"
