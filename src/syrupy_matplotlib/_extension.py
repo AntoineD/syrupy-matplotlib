@@ -16,6 +16,7 @@ diagnostic-artifact directory rides on `collector.results_root`.
 from __future__ import annotations
 
 import hashlib
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -235,6 +236,39 @@ class MplFigureExtension(SingleFileSnapshotExtension):
                 continue
             filtered.add(collection)
         return filtered
+
+    @classmethod
+    def write_snapshot(cls, *, snapshot_location: str, snapshots: list[Any]) -> None:
+        """Write baselines, muting syrupy's layout warning for variant paths.
+
+        `AbstractSyrupyExtension.write_snapshot` warns when it cannot relate
+        the snapshot location to the test location, and
+        `PyTestLocation._matches_snapshot_basename` only accepts a file
+        sitting directly in `__snapshots__/<module_stem>/`. Every variant is
+        one directory deeper by design, so the warning would fire once per
+        written file on the very command the docs tell users to run.
+
+        Overriding a method syrupy documents as final, and matching on its
+        warning text, are both covered by the `syrupy>=5.1,<6` pin.
+
+        Args:
+            snapshot_location: Path the snapshots are written to.
+            snapshots: Syrupy's `(data, test_location, index)` tuples.
+        """
+        if not cls._mpl_write_variants:
+            super().write_snapshot(
+                snapshot_location=snapshot_location, snapshots=snapshots
+            )
+            return
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"\nCan not relate snapshot location",
+                category=UserWarning,
+            )
+            super().write_snapshot(
+                snapshot_location=snapshot_location, snapshots=snapshots
+            )
 
     @classmethod
     def _build_variant_location(cls, canonical: str) -> Path | None:
