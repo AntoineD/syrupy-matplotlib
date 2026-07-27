@@ -112,6 +112,13 @@ def test_ini_tolerance_invalid(pytester: pytest.Pytester) -> None:
         pytester.parseconfigure()
 
 
+def test_ini_tolerance_rejects_negative(pytester: pytest.Pytester) -> None:
+    """A negative RMS threshold fails every comparison; name the mistake early."""
+    pytester.makeini("[pytest]\nsnapshot_matplotlib_tolerance = -1\n")
+    with pytest.raises(pytest.UsageError, match="non-negative"):
+        pytester.parseconfigure()
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

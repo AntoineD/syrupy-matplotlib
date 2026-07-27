@@ -80,9 +80,17 @@ class SnapshotParams:
 
         Returns:
             A new `SnapshotParams` reflecting the merged values.
+
+        Raises:
+            ValueError: If *tolerance* is negative — a negative RMS
+                threshold fails every comparison, byte-identical images
+                included.
         """
         kwargs: dict[str, Any] = {}
         if tolerance is not None:
+            if tolerance < 0:
+                msg = f"tolerance must be non-negative, got {tolerance!r}."
+                raise ValueError(msg)
             kwargs["tolerance"] = float(tolerance)
         if savefig_kwargs is not None:
             kwargs["savefig_kwargs"] = dict(savefig_kwargs)

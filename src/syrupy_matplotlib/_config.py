@@ -180,6 +180,14 @@ def resolve_config(config: pytest.Config) -> Config:
             "Expected a number."
         )
         raise ValueError(msg) from e
+    if tolerance < 0:
+        # A negative RMS threshold fails every comparison, including
+        # byte-identical images — better to name the mistake up front.
+        msg = (
+            f"Invalid snapshot_matplotlib_tolerance value {tolerance_raw!r}. "
+            "Expected a non-negative number."
+        )
+        raise ValueError(msg)
     style = _parse_styles(_read_ini(config, "snapshot_matplotlib_style", DEFAULT_STYLE))
     backend = _read_ini(config, "snapshot_matplotlib_backend", DEFAULT_BACKEND)
 
