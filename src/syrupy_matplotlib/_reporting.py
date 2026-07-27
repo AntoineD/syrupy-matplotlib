@@ -178,8 +178,8 @@ class ResultCollector:
     deleted_variants: list[str]
     """Snapshot names whose variant baseline was deleted as no longer needed.
 
-    Session-local: variant writing is single-process, so unlike `_records`
-    this is never merged across xdist workers.
+    Session-local: variant writing refuses to run under xdist, so unlike
+    `_records` this never needs merging across workers.
     """
 
     variant_dirs_present: set[str]

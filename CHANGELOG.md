@@ -22,9 +22,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the environment whose pixels they describe. It writes a variant only
   where the render differs from the canonical baseline beyond the
   tolerance, deletes ones that have become redundant, and refuses to create
-  a snapshot that has no canonical baseline yet. Plain `--snapshot-update`
-  keeps writing canonical baselines and now warns when variants exist that
-  it may have outdated.
+  a snapshot that has no canonical baseline yet. It also refuses to run
+  under pytest-xdist (`-n`); comparison runs remain xdist-safe. Plain
+  `--snapshot-update` keeps writing canonical baselines and warns when it
+  rewrote baselines that existing variants may no longer match.
 
 - The JSON report records which baseline each comparison used
   (`baseline_variant`), and the terminal summary names the variants a run

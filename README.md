@@ -456,9 +456,10 @@ missing, step 2 fails and tells you to run step 1 first.
 - **Re-baselining canonical can outdate the variants.** Only the environment
   a variant came from can tell, so the plugin warns and leaves them alone;
   those jobs will fail until you re-run step 2 there.
-- **Generate variants without `-n`.** Reading them is xdist-safe (that is
-  what CI does), but the workers would race on the redundant-variant
-  deletions.
+- **Variant generation refuses `-n`.** Reading variants is xdist-safe (that
+  is what CI does), but a pin run deletes redundant variants and reports
+  the deletions, which is per-worker bookkeeping — the flag errors out
+  under pytest-xdist.
 - **Retiring an environment** is a manual `git rm -r` of its tag directory.
 
 ## xdist support

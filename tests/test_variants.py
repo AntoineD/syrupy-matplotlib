@@ -541,6 +541,20 @@ def test_pin_without_update_is_an_error(pytester: pytest.Pytester) -> None:
     assert result.ret != 0
 
 
+def test_pin_refuses_xdist(pytester: pytest.Pytester) -> None:
+    """Variant generation is single-process by construction.
+
+    Redundant-variant deletions and their reporting are per-worker
+    bookkeeping that would silently vanish from the controller's summary.
+    """
+    pytester.makepyfile(test_plots=PLOT_A)
+
+    result = pytester.runpytest("--snapshot-update", PIN, "-n", "2")
+
+    assert result.ret != 0
+    result.stderr.fnmatch_lines([f"*{PIN} does not run under pytest-xdist*"])
+
+
 def test_header_absent_without_pinning(pytester: pytest.Pytester) -> None:
     """A comparison run says nothing in the header.
 

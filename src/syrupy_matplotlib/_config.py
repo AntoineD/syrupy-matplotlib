@@ -207,8 +207,8 @@ def resolve_config(config: pytest.Config) -> Config:
             `snapshot_matplotlib_savefig_kwargs` is not a JSON object, if the
             report directory resolves to the pytest rootpath or one of its
             ancestors, or if `--snapshot-matplotlib-pin-variant` is used
-            without `--snapshot-update` or without matplotlib version
-            metadata to derive a tag from.
+            without `--snapshot-update`, under pytest-xdist, or without
+            matplotlib version metadata to derive a tag from.
     """
     report_raw: str = (
         config.getoption("--snapshot-matplotlib-report", default=None) or ""
@@ -296,7 +296,8 @@ def _resolve_variant(config: pytest.Config) -> tuple[str, bool]:
 
     Raises:
         ValueError: If `--snapshot-matplotlib-pin-variant` is given without
-            `--snapshot-update`, or with no tag to pin to.
+            `--snapshot-update`, under pytest-xdist, or with no tag to pin
+            to.
     """
     variant = derive_variant_tag()
     pin = bool(config.getoption("--snapshot-matplotlib-pin-variant", default=False))
@@ -308,6 +309,15 @@ def _resolve_variant(config: pytest.Config) -> tuple[str, bool]:
         msg = (
             "--snapshot-matplotlib-pin-variant only applies to snapshot "
             "updates; pass it together with --snapshot-update."
+        )
+        raise ValueError(msg)
+    # Reading variants is xdist-safe; writing them is not: redundant-variant
+    # deletions and their reporting are per-worker bookkeeping that never
+    # reaches the controller's summary.
+    if config.getoption("numprocesses", default=None):
+        msg = (
+            "--snapshot-matplotlib-pin-variant does not run under "
+            "pytest-xdist; rerun without -n."
         )
         raise ValueError(msg)
     if not variant:
