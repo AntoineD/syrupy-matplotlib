@@ -79,7 +79,11 @@ def test_collector_summary() -> None:
 
 
 def test_record_relpath_outside_results_root() -> None:
-    """A result image outside the results root keeps its absolute path."""
+    """A result image outside the results root keeps its absolute path.
+
+    In posix form on every platform — the string feeds URLs and JSON, and
+    `str(Path(...))` would produce backslashes on Windows.
+    """
     result = ImageResult(
         status=ImageMatchStatus.MATCH,
         tolerance=2.0,
@@ -87,7 +91,7 @@ def test_record_relpath_outside_results_root() -> None:
         baseline_path=Path("/elsewhere/baseline.png"),
     )
     r = ResultRecord.from_image_result("t::a", result, results_root=Path("/somewhere"))
-    # Falls back to absolute string when relative_to() raises ValueError.
+    # Falls back to the absolute path when relative_to() raises ValueError.
     assert r.result_image == "/elsewhere/result.png"
 
 

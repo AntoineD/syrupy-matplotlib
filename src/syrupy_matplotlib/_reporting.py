@@ -68,10 +68,13 @@ class ResultRecord:
         result: ImageResult,
         results_root: Path | None = None,
     ) -> ResultRecord:
-        """Build a `ResultRecord` from an `ImageResult`.
+        r"""Build a `ResultRecord` from an `ImageResult`.
 
         Image paths are stored relative to *results_root* when provided so
-        HTML reports can link to them portably.
+        HTML reports can link to them portably. They always use forward
+        slashes: the strings end up in URLs and JSON, where a Windows `\\`
+        is a broken link on one platform and an escape character on the
+        other.
 
         Args:
             test_name: Record key — pytest node id plus `::<snapshot stem>`.
@@ -87,11 +90,11 @@ class ResultRecord:
             if p is None:
                 return None
             if results_root is None:
-                return str(p)
+                return p.as_posix()
             try:
                 return p.relative_to(results_root).as_posix()
             except ValueError:
-                return str(p)
+                return p.as_posix()
 
         return cls(
             test_name=test_name,
