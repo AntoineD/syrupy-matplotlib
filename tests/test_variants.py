@@ -439,6 +439,22 @@ def test_update_without_the_flag_leaves_variants_alone(
     assert variant_path(pytester).read_bytes() == variant_bytes
 
 
+def test_no_stale_warning_when_nothing_rewritten(pytester: pytest.Pytester) -> None:
+    """An idempotent `--snapshot-update` does not cry stale.
+
+    The warning says "canonical baselines rewritten"; a run whose figures
+    all match the canonical baselines rewrote nothing.
+    """
+    make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
+    pytester.makepyfile(test_plots=PLOT_A)
+
+    result = pytester.runpytest("--snapshot-update")
+
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["Images: 1 OK, 0 failed"])
+    result.stdout.no_fnmatch_line("*may now be stale*")
+
+
 def test_pinning_does_not_flag_canonical_unused(pytester: pytest.Pytester) -> None:
     """Writing variants leaves the canonical baselines out of unused accounting.
 

@@ -578,6 +578,10 @@ class Plugin:
     def _warn_about_stale_variants(self, terminalreporter: Any) -> None:
         """Warn that a canonical re-baseline may have outdated the variants.
 
+        Fires only when this run wrote a baseline (a ``GENERATED`` record
+        exists): an idempotent `--snapshot-update` that rewrote nothing
+        cannot have outdated anything, and the warning claims a rewrite.
+
         Only the environment a variant was generated in can say whether it
         still differs from the canonical baseline, so the plugin cannot
         refresh or verify them here — the other environments' runs will fail,
@@ -591,6 +595,10 @@ class Plugin:
         """
         tags = self.collector.variant_dirs_present
         if not (self.update_snapshots and tags) or self.config.write_variants:
+            return
+        if all(
+            r.image_status != ImageMatchStatus.GENERATED for r in self.collector.records
+        ):
             return
         # ASCII only: see the note in `_warn_if_png_ignored`.
         terminalreporter.write_line(
