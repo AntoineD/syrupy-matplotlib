@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+
+import pytest
 
 from syrupy_matplotlib._config import Config
 from syrupy_matplotlib._config import resolve_config
 from syrupy_matplotlib._params import SnapshotParams
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def _cfg(
@@ -21,18 +20,19 @@ def _cfg(
     return Config(
         report=frozenset(),
         tolerance=tolerance,
-        style="classic",
+        style=("classic",),
         backend="agg",
         auto=True,
         remove_text=remove_text,
         savefig_kwargs=savefig_kwargs if savefig_kwargs is not None else {},
+        report_dir=Path("figure-report"),
     )
 
 
 def test_from_config_defaults() -> None:
     params = SnapshotParams.from_config(_cfg())
     assert params.tolerance == 2.0
-    assert params.style == "classic"
+    assert params.style == ("classic",)
     assert params.backend == "agg"
     assert params.remove_text is False
     assert params.savefig_kwargs == {}
@@ -52,6 +52,13 @@ def test_merge_no_op() -> None:
     base = SnapshotParams.from_config(_cfg())
     merged = base.merge()
     assert merged == base
+
+
+def test_merge_rejects_negative_tolerance() -> None:
+    """A per-call `snapshot_matplotlib(tolerance=-1)` fails with a clear message."""
+    base = SnapshotParams.from_config(_cfg())
+    with pytest.raises(ValueError, match="non-negative"):
+        base.merge(tolerance=-1.0)
 
 
 def test_merge_savefig_kwargs_replaces() -> None:

@@ -6,6 +6,7 @@ import io
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
+import pytest
 
 from syrupy_matplotlib._comparison import run_comparison
 from syrupy_matplotlib._types import ImageMatchStatus
@@ -91,6 +92,75 @@ def test_run_comparison_diff_keep_on_match_false_keeps_artifacts(
     assert result.baseline_path.exists()
     assert result.diff_path is not None
     assert result.diff_path.exists()
+
+
+def test_run_comparison_equal_bytes_skips_decode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Byte-identical images never reach `compare_images`.
+
+    Deterministic rendering makes the green path byte-identical, so report
+    mode (which calls `run_comparison` for every passing test to keep its
+    artifacts) must not pay the double PNG decode.
+    """
+    import syrupy_matplotlib._comparison as comparison
+
+    monkeypatch.setattr(
+        comparison,
+        "compare_images",
+        lambda *args, **kwargs: pytest.fail(
+            "compare_images must not be called for identical bytes"
+        ),
+    )
+    png = _png_bytes([1, 2, 3])
+    result = run_comparison(
+        test_bytes=png,
+        baseline_bytes=png,
+        tolerance=0.0,
+        diff_dir=tmp_path,
+        stem="foo",
+        keep_on_match=True,
+    )
+    assert result.status == ImageMatchStatus.MATCH
+    assert result.actual_path is not None
+    assert result.actual_path.exists()
+    assert result.baseline_path is not None
+    assert result.baseline_path.exists()
+
+
+def _png_bytes_with_figsize(figsize: tuple[float, float]) -> bytes:
+    fig = plt.figure(figsize=figsize)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", metadata={"Software": None})
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def test_run_comparison_size_mismatch_reports_diff(tmp_path: Path) -> None:
+    """Different pixel dimensions fail as a DIFF result, not a raw traceback.
+
+    `compare_images` raises `ImageComparisonFailure` for size mismatches
+    (a figsize or dpi change) instead of returning a result dict; the wrapper
+    must translate that into a failing `ImageResult` so the record still
+    reaches the summary and reports.
+    """
+    result = run_comparison(
+        test_bytes=_png_bytes_with_figsize((3, 3)),
+        baseline_bytes=_png_bytes_with_figsize((4, 3)),
+        tolerance=0.0,
+        diff_dir=tmp_path,
+        stem="foo",
+    )
+    assert result.status == ImageMatchStatus.DIFF
+    assert not is_passing(result.status)
+    assert result.rms is None
+    assert result.diff_path is None
+    assert result.error_message is not None
+    assert "sizes do not match" in result.error_message
+    assert result.actual_path is not None
+    assert result.actual_path.exists()
+    assert result.baseline_path is not None
+    assert result.baseline_path.exists()
 
 
 def test_run_comparison_missing_baseline(tmp_path: Path) -> None:

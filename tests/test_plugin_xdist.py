@@ -90,3 +90,49 @@ def test_no_xdist_plugin_report_path(pytester: pytest.Pytester) -> None:
 
     report = pytester.path / "figure-report" / "results.json"
     assert report.exists()
+
+
+def test_worker_uid_is_set_before_nodes_are_configured(
+    pytester: pytest.Pytester,
+) -> None:
+    """The session UID must exist by the time xdist configures its workers.
+
+    xdist calls `pytest_configure_node` from `DSession.pytest_sessionstart`.
+    Deriving the UID in the plugin's own `pytest_sessionstart` only works
+    while xdist keeps that hookimpl `trylast` — flip it and workers fall
+    back to the `"main"` UID while the controller merges on the real one,
+    so every worker's results disappear from the summary and the reports
+    with no error anywhere. Resolving it in `pytest_configure` removes the
+    dependency; this test pins that.
+    """
+    pytester.makepyfile(test_plots=XDIST_TEST)
+    pytester.runpytest("--snapshot-update", "-p", "no:xdist").assert_outcomes(passed=4)
+
+    # Written only now: `pytest_configure_node` is an xdist hook, and a
+    # conftest declaring it makes the `-p no:xdist` run above fail to load.
+    pytester.makeconftest("""\
+        from pathlib import Path
+
+        import pytest
+
+        from syrupy_matplotlib import _xdist
+
+
+        @pytest.hookimpl(trylast=True)
+        def pytest_configure(config):
+            Path(config.rootpath, "at-configure.txt").write_text(
+                _xdist.get_uid(config)
+            )
+
+
+        def pytest_configure_node(node):
+            Path(node.config.rootpath, "at-configure-node.txt").write_text(
+                _xdist.get_uid(node.config)
+            )
+    """)
+    pytester.runpytest("-n", "2").assert_outcomes(passed=4)
+
+    # `trylast` puts this after the plugin's own `pytest_configure`, so a UID
+    # derived any later than that would still read as "main" here.
+    assert (pytester.path / "at-configure.txt").read_text() != "main"
+    assert (pytester.path / "at-configure-node.txt").read_text() != "main"

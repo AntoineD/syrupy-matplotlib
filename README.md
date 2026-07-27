@@ -134,14 +134,22 @@ def test_lib_plot(snapshot_matplotlib):
     assert plt.gcf() == snapshot_matplotlib(tolerance=5.0)
 ```
 
+> **`remove_text` mutates the figure.** It calls
+> `matplotlib.testing.decorators.remove_ticks_and_titles(fig)`, which strips
+> tick labels and titles from the figure object itself rather than from a copy
+> — the same thing `image_comparison` does. The figure stays stripped
+> afterwards, so a second assertion on it, or any inspection after the
+> assertion, sees the stripped version.
+
 Test-scoped defaults (`style`, `backend`) come from INI; override them
 globally with a wrapper fixture in `conftest.py` if needed.
 
 ## Auto-discover / auto-assert / auto-close
 
-The fixture tracks every figure created during the test. At teardown it
-compares each figure that was **not** asserted explicitly against its
-baseline and closes all figures it discovered.
+The fixture tracks every figure created during the test. At the end of the
+test's call phase it compares each figure that was **not** asserted
+explicitly against its baseline — so a mismatch is a regular test failure,
+not a teardown error — and at teardown it closes all figures it discovered.
 
 ```python
 def test_one_liner(snapshot_matplotlib):
@@ -152,6 +160,25 @@ def test_one_liner(snapshot_matplotlib):
 
 Figures you already asserted with `assert fig == snapshot_matplotlib` are
 skipped by the auto path (no double-counted baselines) but are still closed.
+
+> **Auto-discovery only sees pyplot-managed figures.** It reads matplotlib's
+> global figure manager, which tracks figures created through `plt.figure()`,
+> `plt.subplots()`, and friends. A figure built directly — `fig = Figure()`,
+> the usual shape in embedded or library code — is invisible to it and must
+> be asserted explicitly:
+>
+> ```python
+> from matplotlib.figure import Figure
+>
+>
+> def test_embedded(snapshot_matplotlib):
+>     fig = Figure()
+>     fig.subplots().plot([1, 2, 3])
+>     assert fig == snapshot_matplotlib  # required: auto won't find it
+> ```
+>
+> A test that requests the fixture, has auto enabled, and ends up comparing
+> no figure at all emits a warning rather than passing silently.
 
 Disable the auto behavior at two levels (per-test wins over INI):
 
@@ -179,11 +206,27 @@ Accepted boolean literals: `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0`.
 | `--snapshot-details` | syrupy | List unused snapshots in the summary. |
 | `--snapshot-matplotlib-report` | this plugin | Generate an HTML report in `figure-report/`. |
 | `--snapshot-matplotlib-report=html,json` | this plugin | Select report formats (`html`, `json`, `basic-html`). |
+| `--snapshot-matplotlib-report-dir` | this plugin | Where artifacts and reports land (default `figure-report/`). |
 
 > **Warning:** Passing `--snapshot-ignore-file-extensions=png` silently
 > disables figure discovery. The plugin emits a warning if this is detected.
 
-### `figure-report/` contents
+### The report directory
+
+`figure-report/` is the default; `--snapshot-matplotlib-report-dir=DIR` or
+`snapshot_matplotlib_report_dir` moves it. A relative value is resolved
+against the rootdir.
+
+> **The plugin owns this directory.** At the start of every session it
+> deletes its own reports and every `*.png` beneath it, so a run that goes
+> green cannot leave the previous run's failure report standing. Point it at
+> a directory of its own — the rootdir itself is rejected.
+
+Give concurrent runs that share a checkout (`tox -p`, two CI jobs) their own
+directory: they otherwise write the same artifact paths for the same test
+and race on them.
+
+#### Contents
 
 Without `--snapshot-matplotlib-report`, only failed comparisons leave
 artifacts under `figure-report/`: the rendered output (`<stem>.png`),
@@ -220,7 +263,15 @@ snapshot_matplotlib_backend        = agg
 snapshot_matplotlib_auto           = true
 snapshot_matplotlib_remove_text    = false
 snapshot_matplotlib_savefig_kwargs = {}
+snapshot_matplotlib_report_dir     = figure-report
 ```
+
+A blank value (`snapshot_matplotlib_remove_text =`) counts as unset for every
+option and falls back to the default shown above.
+
+`snapshot_matplotlib_style` accepts a comma-separated list, applied left to
+right the way `plt.style.use()` composes styles — `classic,
+_classic_test_patch` is matplotlib's own test-suite pairing.
 
 `snapshot_matplotlib_savefig_kwargs` accepts a JSON object whose keys are
 forwarded to `Figure.savefig()`. A per-call
@@ -229,7 +280,10 @@ rather than merging per key — pass every key you need, including any INI
 defaults you want to keep. Per-call `remove_text` / `tolerance` likewise
 override the INI defaults for that one assertion.
 
-CLI flags override INI options.
+Precedence runs per-call `snapshot_matplotlib(...)` → `set_defaults()` → INI
+→ built-in default. Only `snapshot_matplotlib_report_dir` has a CLI
+counterpart, which wins over it; `--snapshot-matplotlib-report` is CLI-only,
+and the rest are INI-only.
 
 ## Relation to `matplotlib.testing`
 
@@ -244,7 +298,8 @@ deviations:
   so mpl's vendored baseline PNGs keep matching across releases. This
   plugin uses `default` (current mpl built-in defaults): fresh baselines
   compare against themselves, so the patch is irrelevant — it only
-  matters for byte-parity with mpl's own upstream baseline fixtures.
+  matters for byte-parity with mpl's own upstream baseline fixtures. Set
+  `snapshot_matplotlib_style = classic,_classic_test_patch` to adopt it.
 
 - **FreeType version pin.** `image_comparison(..., freetype_version=...)`
   skips a test when the installed FreeType differs from the version the
@@ -283,15 +338,16 @@ At the end of every run the plugin prints a one-block summary:
 Images: 8 OK, 2 failed
 ```
 
-With `-v` (or higher), each non-empty bucket is expanded to list the
-pytest node ids that landed in it:
+With `-v` (or higher), each non-empty bucket is expanded to list its
+records — the pytest node id plus the snapshot stem, one entry per
+assertion:
 
 ```text
   OK images (8):
-    tests/test_plots.py::test_simple
+    tests/test_plots.py::test_simple::test_simple
     ...
   Failed images (2):
-    tests/test_plots.py::test_drift
+    tests/test_plots.py::test_drift::test_drift
 ```
 
 ## Unused-snapshot detection
@@ -309,6 +365,18 @@ reproducibility helpers, SVG hashsalt, `SOURCE_DATE_EPOCH=0`. Figures are
 drawn under the configured `style` via
 `plt.style.context(..., after_reset=True)`.
 
+Determinism holds **within** a matplotlib version, not across upgrades. The
+plugin delegates font setup to `matplotlib.testing`, so whatever that helper
+changes, your rendering follows. Concretely, matplotlib 3.11 changed
+`set_font_settings_for_testing()` to set `text.hinting = "default"` (it was
+`"none"`) and stopped setting `text.hinting_factor`. Glyph rasterization
+differs between those two settings, so **baselines containing visible text and
+generated under matplotlib ≤ 3.10 will fail against matplotlib ≥ 3.11.**
+
+Treat a matplotlib minor bump like a FreeType change: regenerate with
+`--snapshot-update` and eyeball the diff, or insulate the suite with
+`remove_text = true` / a non-zero `snapshot_matplotlib_tolerance`.
+
 ## xdist support
 
 Works with `pytest-xdist` (`-n auto`). Workers write per-worker result
@@ -325,7 +393,7 @@ their fragments or image artifacts to the controller.
 ## Custom fixture wrappers
 
 To set test-scoped defaults (e.g. a different tolerance for one package),
-wrap the fixture in a `conftest.py`:
+wrap the fixture in a `conftest.py` and call `set_defaults()`:
 
 ```python
 import pytest
@@ -333,5 +401,11 @@ import pytest
 
 @pytest.fixture
 def snapshot_matplotlib(snapshot_matplotlib):
-    return snapshot_matplotlib(tolerance=5.0)
+    return snapshot_matplotlib.set_defaults(tolerance=5.0)
 ```
+
+`set_defaults(tolerance=..., savefig_kwargs=..., remove_text=..., auto=...)`
+applies to **every** assertion in the test, including the ones made by the
+auto path. Calling `snapshot_matplotlib(tolerance=5.0)` in a wrapper fixture
+instead would set the tolerance for the *first* assertion only — per-call
+overrides are reverted once the assertion they precede has run.

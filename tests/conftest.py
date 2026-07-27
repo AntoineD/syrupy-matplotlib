@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import pytest
+import pytest
 
 pytest_plugins = ["pytester"]
 
@@ -31,3 +29,21 @@ def pytest_configure(config: pytest.Config) -> None:
             "COVERAGE_PROCESS_START",
             str(Path(__file__).parent.parent / ".coveragerc"),
         )
+
+
+@pytest.fixture(autouse=True)
+def isolate_from_outer_xdist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hide this run's xdist identity from pytester subprocesses.
+
+    ``--runpytest=subprocess`` spawns a plain ``python -m pytest`` that
+    inherits ``os.environ``. When *this* suite runs under ``pytest -n``,
+    ``PYTEST_XDIST_WORKER`` leaks into that subprocess and syrupy's
+    ``is_xdist_worker()`` reads it as proof of a controller. It then publishes
+    a worker report and returns the exit status untouched, skipping unused
+    snapshot detection — so ``test_unused_snapshot_fails`` saw a green inner
+    run and the whole suite only failed under ``-n``.
+
+    The inner pytest is standalone; nothing collects its worker report.
+    """
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    monkeypatch.delenv("PYTEST_XDIST_WORKER_COUNT", raising=False)

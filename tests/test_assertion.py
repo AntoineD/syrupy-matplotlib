@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gc
 from unittest.mock import MagicMock
 
+import matplotlib.pyplot as plt
 import pytest
 
 from syrupy_matplotlib._assertion import MplSnapshotAssertion
@@ -40,7 +42,7 @@ def _make_assertion(pytester: pytest.Pytester) -> MplSnapshotAssertion:
         update_snapshots=False,
         mpl_params=SnapshotParams(
             tolerance=2.0,
-            style="classic",
+            style=("classic",),
             backend="agg",
             remove_text=False,
         ),
@@ -89,6 +91,52 @@ def test_call_override_reverts_after_post_assert(pytester: pytest.Pytester) -> N
     assert snap._mpl_params.tolerance == 2.0
 
 
+def test_set_defaults_survives_post_assert(pytester: pytest.Pytester) -> None:
+    """`set_defaults` rebinds the fixture params, so the drain doesn't undo it."""
+    snap = _make_assertion(pytester)
+
+    assert snap.set_defaults(tolerance=99.0, remove_text=True, auto=False) is snap
+    snap._post_assert()
+
+    assert snap._mpl_params.tolerance == 99.0
+    assert snap._mpl_params.remove_text is True
+    assert snap._mpl_auto is False
+
+
+def test_set_defaults_no_args_keeps_params(pytester: pytest.Pytester) -> None:
+    """Every argument is optional; omitting all of them changes nothing."""
+    snap = _make_assertion(pytester)
+    snap.set_defaults()
+    assert snap._mpl_params.tolerance == 2.0
+    assert snap._mpl_auto is True
+
+
+def test_set_defaults_savefig_kwargs_replaces(pytester: pytest.Pytester) -> None:
+    """`savefig_kwargs` replaces wholesale, matching `merge()`."""
+    snap = _make_assertion(pytester)
+    snap.set_defaults(savefig_kwargs={"dpi": 150})
+    assert snap._mpl_params.savefig_kwargs == {"dpi": 150}
+
+
+def test_asserted_figs_entry_dies_with_the_figure(pytester: pytest.Pytester) -> None:
+    """Closed figures drop out of the asserted set.
+
+    With a plain `id()` set, a new figure allocated at a dead figure's
+    address would be treated as already asserted and silently skipped by
+    the auto path. Weak tracking removes the entry as soon as the figure
+    is garbage collected.
+    """
+    snap = _make_assertion(pytester)
+    fig = plt.figure()
+    snap._mpl_asserted_figs.add(fig)
+    assert fig in snap._mpl_asserted_figs
+
+    plt.close(fig)
+    del fig
+    gc.collect()
+    assert len(snap._mpl_asserted_figs) == 0
+
+
 def test_call_auto_override_persists_across_post_assert(
     pytester: pytest.Pytester,
 ) -> None:
@@ -101,3 +149,16 @@ def test_call_auto_override_persists_across_post_assert(
 
     snap._post_assert()
     assert snap._mpl_auto is False
+
+
+def test_describe_failure_falls_back_without_an_execution(
+    pytester: pytest.Pytester,
+) -> None:
+    """No execution recorded yet → the comparison message is the only source."""
+    from syrupy_matplotlib._fixture import _describe_failure
+
+    snap = _make_assertion(pytester)
+    ext = MplFigureExtension()
+    ext._mpl_last_failure_message = "Images differ (RMS 3.000 > tolerance 0.0)"
+
+    assert _describe_failure(snap, ext) == "Images differ (RMS 3.000 > tolerance 0.0)"

@@ -22,6 +22,13 @@ def test_all_matches_documented_exports() -> None:
     }
 
 
+def test_dir_advertises_lazy_exports() -> None:
+    """`dir()` must list the lazy exports without importing them (PEP 562)."""
+    listed = dir(syrupy_matplotlib)
+    for name in syrupy_matplotlib.__all__:
+        assert name in listed
+
+
 def test_public_types_are_classes() -> None:
     """Each public export is a class users can subclass or instantiate."""
     from syrupy_matplotlib import MplFigureExtension

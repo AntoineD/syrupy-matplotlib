@@ -12,29 +12,73 @@ The plugin owns:
 from __future__ import annotations
 
 import contextlib
+import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 
 import pytest
 
+from . import _config
 from . import _xdist
 from ._config import resolve_config
-from ._extension import MplFigureExtension
-from ._fixture import snapshot_matplotlib as _snapshot_matplotlib_fixture
 from ._reporting import ResultCollector
 from ._types import ImageMatchStatus
 
 if TYPE_CHECKING:
+    import weakref
     from collections.abc import Generator
 
+    from matplotlib.figure import Figure
+
+    from ._assertion import MplSnapshotAssertion
     from ._config import Config
     from ._reporting import ResultRecord
 
 __all__ = ["snapshot_matplotlib"]
 
-#: Re-exported so pytest discovers the fixture from this entry-point module.
-snapshot_matplotlib = _snapshot_matplotlib_fixture
+# This module is imported at every pytest startup via the plugin entry
+# point, so it must stay cheap: matplotlib and syrupy (~400 ms together)
+# are only reachable through `_fixture`/`_extension`, which are imported
+# lazily, inside the code paths that actually need them.
+
+#: Stashed on `item.stash` so `pytest_runtest_call` can run auto-assertions
+#: during the call phase. Populated only when the fixture is requested.
+AUTO_STATE_KEY: pytest.StashKey[
+    tuple[MplSnapshotAssertion, weakref.WeakSet[Figure]]
+] = pytest.StashKey()
+
+#: Age past which an unmerged xdist result fragment is considered orphaned.
+#: Generous on purpose — sweeping a live session's fragment loses its results
+#: silently, while keeping a dead one an hour longer costs a few kilobytes.
+_STALE_FRAGMENT_AGE_S = 3600.0
+
+#: Top-level files the report generators write. Cleared at session start so a
+#: fixed suite's green run cannot leave the previous run's report standing.
+_REPORT_FILENAMES = ("report.html", "report-basic.html", "results.json", "styles.css")
+
+
+@pytest.fixture
+def snapshot_matplotlib(
+    request: pytest.FixtureRequest,
+) -> Generator[MplSnapshotAssertion, None, None]:
+    """Provide a matplotlib-aware snapshot assertion.
+
+    Thin wrapper so this entry-point module stays cheap to import: the
+    matplotlib/syrupy machinery in `_fixture` loads on the first test that
+    actually requests the fixture. See `_fixture.generate_snapshot_assertion`
+    for the full behavior documentation.
+
+    Args:
+        request: Pytest's fixture request object.
+
+    Yields:
+        A configured `MplSnapshotAssertion` usable with `==`.
+    """
+    from ._fixture import generate_snapshot_assertion
+
+    yield from generate_snapshot_assertion(request)
 
 
 # ── CLI / INI registration ──────────────────────────────────────────────────
@@ -55,32 +99,55 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help=(
             "Generate a report. TYPES is a comma-separated list of "
-            "html (default), json, basic-html."
+            "html (default), json, basic-html. Write "
+            "--snapshot-matplotlib-report=TYPES when a test path follows, "
+            "or the path is read as TYPES."
+        ),
+    )
+    group.addoption(
+        "--snapshot-matplotlib-report-dir",
+        metavar="DIR",
+        default=None,
+        help=(
+            "Directory for comparison artifacts and reports "
+            f"(default: {_config.DEFAULT_REPORT_DIR}, relative to the rootdir). "
+            "Overrides snapshot_matplotlib_report_dir."
         ),
     )
     parser.addini(
-        "snapshot_matplotlib_tolerance", help="Default RMS tolerance.", default="0"
+        "snapshot_matplotlib_report_dir",
+        help="Default directory for comparison artifacts and reports.",
+        default=_config.DEFAULT_REPORT_DIR,
     )
     parser.addini(
-        "snapshot_matplotlib_style", help="Default matplotlib style.", default="default"
+        "snapshot_matplotlib_tolerance",
+        help="Default RMS tolerance.",
+        default=_config.DEFAULT_TOLERANCE,
     )
     parser.addini(
-        "snapshot_matplotlib_backend", help="Default matplotlib backend.", default="agg"
+        "snapshot_matplotlib_style",
+        help="Default matplotlib style.",
+        default=_config.DEFAULT_STYLE,
+    )
+    parser.addini(
+        "snapshot_matplotlib_backend",
+        help="Default matplotlib backend.",
+        default=_config.DEFAULT_BACKEND,
     )
     parser.addini(
         "snapshot_matplotlib_auto",
         help="Default auto-discover / auto-assert / auto-close behavior (true/false).",
-        default="",
+        default=_config.DEFAULT_AUTO,
     )
     parser.addini(
         "snapshot_matplotlib_remove_text",
         help="Default remove-text behavior (true/false).",
-        default="false",
+        default=_config.DEFAULT_REMOVE_TEXT,
     )
     parser.addini(
         "snapshot_matplotlib_savefig_kwargs",
         help="Default Figure.savefig() kwargs as a JSON object, e.g. '{\"dpi\": 150}'.",
-        default="{}",
+        default=_config.DEFAULT_SAVEFIG_KWARGS,
     )
 
 
@@ -92,26 +159,82 @@ def pytest_configure(config: pytest.Config) -> None:
 
     Args:
         config: The pytest `Config` object.
+
+    Raises:
+        pytest.UsageError: If the syrupy plugin is not registered, or if any
+            `--snapshot-matplotlib-*` flag or `snapshot_matplotlib_*` INI
+            value is malformed.
     """
-    mpl_config = resolve_config(config)
-    diff_dir = Path(config.rootpath) / "figure-report"
+    # Everything downstream reads syrupy's options (`update_snapshots`,
+    # `ignore_file_extensions`) and its session object; without the plugin
+    # those lookups surface as AttributeError INTERNALERROR tracebacks.
+    if not config.pluginmanager.hasplugin("syrupy"):
+        msg = (
+            "syrupy-matplotlib requires the syrupy pytest plugin, "
+            "which is not registered (disabled via -p no:syrupy?)."
+        )
+        raise pytest.UsageError(msg)
 
-    plugin = Plugin(config=mpl_config, diff_dir=diff_dir)
+    # A bare `ValueError` escaping `pytest_configure` renders as a pluggy
+    # INTERNALERROR traceback; `UsageError` gets pytest's one-line treatment,
+    # which is what a typo'd flag deserves.
+    try:
+        mpl_config = resolve_config(config)
+    except ValueError as e:
+        raise pytest.UsageError(str(e)) from e
+    diff_dir = mpl_config.report_dir
+
+    # The session UID has to exist before xdist calls `pytest_configure_node`,
+    # which it does from `DSession.pytest_sessionstart`. Generating it in our
+    # own `pytest_sessionstart` happens to work only while xdist keeps that
+    # hookimpl `trylast`; were it ever `tryfirst`, workers would fall back to
+    # the `"main"` UID while the controller merged on the real one, and every
+    # worker's results would vanish from the summary and the reports without
+    # a word. `pytest_configure` runs on both sides — with `workerinput`
+    # already attached on a worker — before any of that, so no hook order
+    # can break it.
+    is_xdist = config.pluginmanager.hasplugin("xdist")
+    if is_xdist:
+        _xdist.setup_session(config)
+
+    plugin = Plugin(
+        config=mpl_config,
+        diff_dir=diff_dir,
+        rootpath=Path(config.rootpath),
+        update_snapshots=bool(config.option.update_snapshots),
+        is_xdist_worker=is_xdist and _xdist._is_worker(config),
+    )
     config.pluginmanager.register(plugin, name="syrupy_matplotlib_plugin")
-
-    # Bind session-wide state on the extension class so the per-assertion
-    # stamping doesn't have to thread it through.
-    MplFigureExtension._mpl_collector = plugin.collector
-    MplFigureExtension._mpl_rootpath = Path(config.rootpath)
-    MplFigureExtension._mpl_update_snapshots = bool(config.option.update_snapshots)
-    MplFigureExtension._mpl_keep_match_artifacts = bool(mpl_config.report)
 
     _warn_if_png_ignored(config)
 
-    if config.pluginmanager.hasplugin("xdist"):
+    if is_xdist:
         config.pluginmanager.register(
             _xdist.XdistCoordinator(), name="syrupy_matplotlib_xdist"
         )
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Reset the class-level extension bindings made during the session.
+
+    Without this, a later pytest session in the same process (repeated
+    `pytest.main()` calls, pytester's in-process runner) reads the previous
+    session's collector and rootpath.
+
+    The extension module is looked up in `sys.modules` rather than imported:
+    a session that never used the fixture never loaded matplotlib, and
+    unconfigure must not become the thing that loads it.
+
+    Args:
+        config: The pytest `Config` object (unused).
+    """
+    ext_module = sys.modules.get(f"{__package__}._extension")
+    if ext_module is None:
+        return
+    ext_module.MplFigureExtension._mpl_collector = None
+    ext_module.MplFigureExtension._mpl_rootpath = None
+    ext_module.MplFigureExtension._mpl_update_snapshots = False
+    ext_module.MplFigureExtension._mpl_keep_match_artifacts = False
 
 
 def _print_comparison_summary(
@@ -135,8 +258,8 @@ def _print_comparison_summary(
     failed_images: list[str] = []
 
     for r in records:
-        # `image_status` is the enum's str value (or None); str-enum equality
-        # lets the member patterns match it directly, and None falls through.
+        # `image_status` is the enum's str value; str-enum equality lets the
+        # member patterns match it directly. `_` covers DIFF and MISSING.
         match r.image_status:
             case ImageMatchStatus.MATCH:
                 ok_images.append(r.test_name)
@@ -210,17 +333,25 @@ def _warn_if_png_ignored(config: pytest.Config) -> None:
     files whose extension is in the ignore list; ignoring `png` would
     silently disable figure discovery.
 
+    Routed through `issue_config_time_warning`: a bare `warnings.warn`
+    during `pytest_configure` runs before pytest's warning capture is
+    installed, so it bypassed the warnings summary and only surfaced on
+    stderr when the user's filters happened to allow it.
+
     Args:
         config: The pytest `Config` object.
     """
-    import warnings
-
     exts = config.option.ignore_file_extensions or []
     if any(e.strip().lstrip(".").lower() == "png" for e in exts):
-        warnings.warn(
-            "--snapshot-ignore-file-extensions includes 'png' — "
-            "syrupy-matplotlib will not detect unused baselines.",
-            stacklevel=1,
+        # ASCII only: the message travels through the terminal writer, whose
+        # encoding on Windows is cp1252 — an em-dash arrives as byte 0x97 and
+        # breaks any UTF-8 consumer of the output (pytester, CI log viewers).
+        config.issue_config_time_warning(
+            UserWarning(
+                "--snapshot-ignore-file-extensions includes 'png'; "
+                "syrupy-matplotlib will not detect unused baselines."
+            ),
+            stacklevel=2,
         )
 
 
@@ -241,21 +372,54 @@ class Plugin:
     diff_dir: Path
     """Directory where pixel-comparison artifacts and reports land."""
 
+    rootpath: Path
+    """Pytest rootpath; namespaces artifact paths under `figure-report/`."""
+
+    update_snapshots: bool
+    """`True` when `--snapshot-update` is active."""
+
     collector: ResultCollector
     """Accumulates comparison outcomes across the session."""
 
     _is_xdist_worker: bool
     """`True` when running as an xdist worker."""
 
-    def __init__(self, config: Config, diff_dir: Path) -> None:
+    def __init__(
+        self,
+        config: Config,
+        diff_dir: Path,
+        rootpath: Path,
+        update_snapshots: bool,
+        is_xdist_worker: bool = False,
+    ) -> None:
         """Args:
         config: Resolved plugin configuration.
         diff_dir: Directory where pixel-comparison artifacts are written.
-        """  # noqa: D205
+        rootpath: Pytest rootpath, used to namespace artifact paths.
+        update_snapshots: Value of `--snapshot-update`.
+        is_xdist_worker: `True` when this process is an xdist worker.
+        """  # ruff: ignore[missing-blank-line-after-summary]
         self.config = config
         self.diff_dir = diff_dir
+        self.rootpath = rootpath
+        self.update_snapshots = update_snapshots
         self.collector = ResultCollector(results_root=diff_dir)
-        self._is_xdist_worker = False
+        self._is_xdist_worker = is_xdist_worker
+
+    def bind_extension_class(self) -> None:
+        """Stamp session-wide state onto `MplFigureExtension` class attributes.
+
+        Called from fixture setup rather than `pytest_configure` so the
+        entry-point module never imports the matplotlib-heavy extension at
+        startup. Idempotent — every fixture instance re-stamps the same
+        session values.
+        """
+        from ._extension import MplFigureExtension
+
+        MplFigureExtension._mpl_collector = self.collector
+        MplFigureExtension._mpl_rootpath = self.rootpath
+        MplFigureExtension._mpl_update_snapshots = self.update_snapshots
+        MplFigureExtension._mpl_keep_match_artifacts = bool(self.config.report)
 
     @pytest.hookimpl(wrapper=True)
     def pytest_runtest_call(self, item: pytest.Item) -> Generator[None, None, None]:
@@ -276,21 +440,32 @@ class Plugin:
         Yields:
             Control to the inner hookimpls so the test body runs first.
         """
-        from ._fixture import run_auto_assertions
-
         result = yield
-        run_auto_assertions(item)
+        # Guard on the stash key before importing: this wrapper runs for
+        # every test, and `_fixture` must only load when the fixture was
+        # actually requested somewhere.
+        if AUTO_STATE_KEY in item.stash:
+            from ._fixture import run_auto_assertions
+
+            run_auto_assertions(item)
         return result
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
-        """Initialise xdist state at session start.
+        """Clear what an earlier session left in the artifact directory.
+
+        Controller-only: a worker shares the directory with its siblings and
+        would delete artifacts they are still writing. Skipped under
+        ``--collect-only``, which runs no comparison and writes nothing — a
+        quick collection pass must not destroy the failure report the user
+        may be reading.
 
         Args:
             session: The current pytest session.
         """
-        if session.config.pluginmanager.hasplugin("xdist"):
-            _xdist.setup_session(session.config)
-            self._is_xdist_worker = _xdist._is_worker(session.config)
+        if self._is_xdist_worker or session.config.option.collectonly:
+            return
+        _sweep_stale_fragments(self.diff_dir)
+        _clear_previous_artifacts(self.diff_dir)
 
     def pytest_sessionfinish(
         self,
@@ -299,10 +474,16 @@ class Plugin:
     ) -> None:
         """Merge xdist result fragments and write configured reports.
 
+        Skipped under ``--collect-only`` — no comparisons ran, and an empty
+        report (or an empty fragment) would overwrite what the previous real
+        run wrote.
+
         Args:
             session: The current pytest session.
             exitstatus: Session exit code (unused).
         """
+        if session.config.option.collectonly:
+            return
         if self._is_xdist_worker:
             self._save_xdist_results(session.config)
             return
@@ -398,6 +579,66 @@ class Plugin:
         """
         merged = _xdist.merge_worker_fragments(self.diff_dir, _xdist.get_uid(config))
         self.collector.merge_serialized(merged)
+
+
+def _sweep_stale_fragments(diff_dir: Path) -> None:
+    """Delete xdist result fragments a crashed earlier session left behind.
+
+    Fragments are merged and unlinked at session end; any still present at
+    session start are orphans from a controller that never finished. Left
+    alone they accumulate forever and keep `figure-report/` from being
+    pruned as empty.
+
+    Fragment names carry the writing session's UID, but a sweep cannot tell
+    a dead session's UID from a live one's, so it goes by age instead: a
+    second pytest session sharing this rootdir (`tox -p`, two shells, two
+    CI jobs on one checkout) may have workers whose fragments are written
+    and not yet merged, and deleting those would silently drop their
+    results from the other run's report. Workers write at session end and
+    the controller merges seconds later, so anything older than
+    `_STALE_FRAGMENT_AGE_S` belongs to a run that is not coming back.
+
+    Args:
+        diff_dir: The `figure-report/` directory to sweep.
+    """
+    cutoff = time.time() - _STALE_FRAGMENT_AGE_S
+    # The trailing `*` also catches `.json.tmp` files a worker killed
+    # mid-write left behind (fragments are written to a temp name and
+    # renamed into place).
+    for stale in diff_dir.glob("_results-*.json*"):
+        with contextlib.suppress(OSError):
+            if stale.stat().st_mtime < cutoff:
+                stale.unlink()
+
+
+def _clear_previous_artifacts(diff_dir: Path) -> None:
+    """Delete the reports and comparison images an earlier session wrote.
+
+    `figure-report/` is meant to describe the run that just finished. A
+    failing run writes `report.html` plus actual/baseline/diff PNGs; once
+    the suite is fixed, the next run writes no report at all — and left
+    alone the old one stays, still listing failures that no longer exist.
+    A CI job archiving the directory out of a cached workspace then
+    publishes a report contradicting the run it came from.
+
+    Only files this plugin writes are removed: the reports by name, the
+    comparison artifacts by extension. Result fragments are deliberately
+    left to `_sweep_stale_fragments`, which age-gates them because
+    deleting a live session's fragment loses its results for good. A
+    report is a final output that its own session rewrites at session end,
+    so a concurrent run loses nothing here that it will not rewrite.
+
+    Args:
+        diff_dir: The artifact directory to clear.
+    """
+    for name in _REPORT_FILENAMES:
+        with contextlib.suppress(OSError):
+            (diff_dir / name).unlink(missing_ok=True)
+    # Hardcoded rather than read off `MplFigureExtension.file_extension`:
+    # this module must not import the matplotlib-heavy extension.
+    for image in diff_dir.rglob("*.png"):
+        with contextlib.suppress(OSError):
+            image.unlink()
 
 
 def _remove_empty_subtree(root: Path) -> None:

@@ -27,10 +27,12 @@ class ResultRecord:
     """Complete result for one test item — immutable once handed to the collector."""
 
     test_name: str
-    """Full pytest node id."""
+    """Pytest node id plus `::<snapshot stem>` — one record per snapshot,
+    so a test asserting several figures yields several records."""
 
-    image_status: str | None = None
-    """`ImageMatchStatus` value, or `None` when image comparison was not run."""
+    image_status: str
+    """`ImageMatchStatus` value. Every record describes a comparison that ran,
+    so there is no "pending" state."""
 
     rms: float | None = None
     """RMS pixel difference, or `None`."""
@@ -54,13 +56,9 @@ class ResultRecord:
     def passed(self) -> bool:
         """Whether this record counts as a passing test outcome.
 
-        Records with no `image_status` (e.g. pending) are treated as failed.
-
         Returns:
             `True` when `image_status` is `match` or `generated`.
         """
-        if self.image_status is None:
-            return False
         return is_passing(ImageMatchStatus(self.image_status))
 
     @classmethod
@@ -70,13 +68,16 @@ class ResultRecord:
         result: ImageResult,
         results_root: Path | None = None,
     ) -> ResultRecord:
-        """Build a `ResultRecord` from an `ImageResult`.
+        r"""Build a `ResultRecord` from an `ImageResult`.
 
         Image paths are stored relative to *results_root* when provided so
-        HTML reports can link to them portably.
+        HTML reports can link to them portably. They always use forward
+        slashes: the strings end up in URLs and JSON, where a Windows `\\`
+        is a broken link on one platform and an escape character on the
+        other.
 
         Args:
-            test_name: Full pytest node id.
+            test_name: Record key — pytest node id plus `::<snapshot stem>`.
             result: Immutable result from the comparison engine.
             results_root: Root directory for result artifacts, used to compute
                 relative paths.  Pass `None` to store absolute paths.
@@ -89,11 +90,11 @@ class ResultRecord:
             if p is None:
                 return None
             if results_root is None:
-                return str(p)
+                return p.as_posix()
             try:
                 return p.relative_to(results_root).as_posix()
             except ValueError:
-                return str(p)
+                return p.as_posix()
 
         return cls(
             test_name=test_name,
@@ -134,22 +135,16 @@ class RunSummary:
     def compute(cls, records: list[ResultRecord]) -> RunSummary:
         """Compute a `RunSummary` from a list of `ResultRecord` objects.
 
+        Every record is classified, so `total == passed + failed` always holds.
+
         Args:
             records: All records collected during the session.
 
         Returns:
             Populated `RunSummary`.
         """
-        passed = 0
-        failed = 0
-        for r in records:
-            if r.image_status is None:
-                continue
-            if r.passed:
-                passed += 1
-            else:
-                failed += 1
-        return cls(total=len(records), passed=passed, failed=failed)
+        passed = sum(1 for r in records if r.passed)
+        return cls(total=len(records), passed=passed, failed=len(records) - passed)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dictionary of all fields.
@@ -177,7 +172,7 @@ class ResultCollector:
         """Args:
         results_root: Root directory for result artifacts.  Pass `None`
             when no report directory is configured.
-        """  # noqa: D205
+        """  # ruff: ignore[missing-blank-line-after-summary]
         self._records = {}
         self.results_root = results_root
 
@@ -230,9 +225,16 @@ class ResultCollector:
     def save_worker_json(self, path: Path) -> None:
         """Serialize all records to a JSON file (used by xdist workers).
 
+        Written to a sibling temp file and renamed into place, so the
+        controller can never observe a half-written fragment — a worker
+        killed mid-write (OOM, timeout) would otherwise feed truncated JSON
+        into the session-end merge.
+
         Args:
             path: Destination path; parent directories are created as needed.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w") as f:
+        tmp = path.with_name(path.name + ".tmp")
+        with tmp.open("w") as f:
             json.dump(self.to_serializable(), f, indent=2)
+        tmp.replace(path)

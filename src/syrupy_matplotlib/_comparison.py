@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from matplotlib.testing.compare import compare_images
+from matplotlib.testing.exceptions import ImageComparisonFailure
 
 from ._types import ImageMatchStatus
 from ._types import ImageResult
@@ -63,9 +64,31 @@ def run_comparison(
     baseline_path = diff_dir / f"{stem}-expected.{ext}"
     baseline_path.write_bytes(baseline_bytes)
 
-    err = compare_images(
-        str(baseline_path), str(actual_path), tol=tolerance, in_decorator=True
-    )
+    if test_bytes == baseline_bytes:
+        # Identical bytes decode to identical pixels: skip compare_images'
+        # double PNG decode (~8 ms/pair), which report mode would otherwise
+        # pay for every passing test.
+        err = None
+    else:
+        try:
+            err = compare_images(
+                str(baseline_path), str(actual_path), tol=tolerance, in_decorator=True
+            )
+        except ImageComparisonFailure as e:
+            # Raised (instead of a result dict) when the images have different
+            # pixel dimensions — `crop_to_same` only crops eps/pdf conversions.
+            # Typically a figsize/dpi change; no RMS or diff image is available.
+            return ImageResult(
+                status=ImageMatchStatus.DIFF,
+                tolerance=tolerance,
+                actual_path=actual_path,
+                baseline_path=baseline_path,
+                error_message=(
+                    f"Images differ ({e}):\n"
+                    f"  actual:   {actual_path}\n"
+                    f"  expected: {baseline_path}"
+                ),
+            )
 
     if err is None:
         if not keep_on_match:

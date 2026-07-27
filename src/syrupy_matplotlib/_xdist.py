@@ -8,9 +8,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import uuid
+import warnings
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -91,6 +93,11 @@ def get_worker_id() -> str:
 def merge_worker_fragments(results_dir: Path, uid: str) -> dict[str, Any]:
     """Read and merge all per-worker result fragments, then delete them.
 
+    A fragment that cannot be parsed — a worker killed hard enough to leave
+    no file rename behind, a disk hiccup — is discarded with a warning
+    instead of aborting: one worker's missing records beat losing the whole
+    session's summary and reports to an INTERNALERROR at session finish.
+
     Args:
         results_dir: Directory containing the fragment files.
         uid: Session UID used to glob the correct files.
@@ -100,7 +107,16 @@ def merge_worker_fragments(results_dir: Path, uid: str) -> dict[str, Any]:
     """
     merged: dict[str, Any] = {}
     for path in sorted(results_dir.glob(f"_results-{uid}-*.json")):
-        with path.open() as f:
-            merged.update(json.load(f))
-        path.unlink()
+        try:
+            with path.open() as f:
+                merged.update(json.load(f))
+        except (OSError, json.JSONDecodeError):
+            warnings.warn(
+                f"syrupy-matplotlib: discarding unreadable xdist result "
+                f"fragment {path.name}; that worker's comparisons are "
+                "missing from the summary and reports.",
+                stacklevel=2,
+            )
+        with contextlib.suppress(OSError):
+            path.unlink()
     return merged

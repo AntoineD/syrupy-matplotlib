@@ -22,7 +22,7 @@ def generate_json_report(collector: ResultCollector, results_dir: Path) -> Path:
             "metadata": {"version": 2, "generator": "syrupy-matplotlib"},
             "summary": {"total": N, "passed": N, "failed": N},
             "results": {
-                "nodeid": {
+                "<nodeid>::<snapshot stem>": {
                     "test_name": "...",
                     "image_status": "match|diff|missing|generated",
                     "passed": true,

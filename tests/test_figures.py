@@ -91,3 +91,9 @@ def _png_dimensions(data: bytes) -> tuple[int, int]:
     width = struct.unpack(">I", data[16:20])[0]
     height = struct.unpack(">I", data[20:24])[0]
     return width, height
+
+
+def test_format_kwarg_rejected(fig: plt.Figure) -> None:
+    """`format` is owned by the extension; colliding on it must say so."""
+    with pytest.raises(ValueError, match="savefig_kwargs must not set 'format'"):
+        save_figure_to_bytes(fig, "png", {"format": "png"})

@@ -43,9 +43,7 @@
 <div class="card" data-status="{{ verdict }}">
   <div class="card-header" onclick="toggle(this)">
     <span class="badge badge-{{ verdict }}">{{ verdict }}</span>
-    {% if record.image_status %}
     <span class="badge badge-{{ record.image_status }}" title="image">I</span>
-    {% endif %}
     <span class="test-name">{{ record.test_name }}</span>
     {% if record.rms is not none %}
     <span title="RMS">{{ "%.3f"|format(record.rms) }}</span>
@@ -55,21 +53,23 @@
   <div class="card-body">
     {% if record.result_image or record.baseline_image or record.diff_image %}
     <div class="images">
+      {# urlencode: `#`/`?` in a parametrize id would otherwise truncate the
+         relative URL to a fragment or query string. `/` stays unquoted. #}
       {% if record.baseline_image %}
       <figure class="img-block">
-        <img src="{{ record.baseline_image }}" alt="baseline" loading="lazy">
+        <img src="{{ record.baseline_image|urlencode }}" alt="baseline" loading="lazy">
         <figcaption>Baseline</figcaption>
       </figure>
       {% endif %}
       {% if record.diff_image %}
       <figure class="img-block">
-        <img src="{{ record.diff_image }}" alt="diff" loading="lazy">
+        <img src="{{ record.diff_image|urlencode }}" alt="diff" loading="lazy">
         <figcaption>Diff (10×)</figcaption>
       </figure>
       {% endif %}
       {% if record.result_image %}
       <figure class="img-block">
-        <img src="{{ record.result_image }}" alt="result" loading="lazy">
+        <img src="{{ record.result_image|urlencode }}" alt="result" loading="lazy">
         <figcaption>Result</figcaption>
       </figure>
       {% endif %}

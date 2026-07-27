@@ -31,7 +31,7 @@ th { background: #f0f0f0; }
 <tr>
   <td><code>{{ record.test_name }}</code></td>
   <td class="{{ verdict }}">{{ verdict }}</td>
-  <td>{{ record.image_status or '' }}</td>
+  <td>{{ record.image_status }}</td>
   <td>{{ "%.3f"|format(record.rms) if record.rms is not none else '' }}</td>
   <td>{{ record.error_message or '' }}</td>
 </tr>

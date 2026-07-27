@@ -35,7 +35,23 @@ def save_figure_to_bytes(
 
     Returns:
         Raw image bytes in the requested format.
+
+    Raises:
+        ValueError: If *user_savefig_kwargs* sets `format`, which the
+            extension owns.
     """
+    if "format" in user_savefig_kwargs:
+        # Left to collide, this surfaces as `savefig() got multiple values for
+        # keyword argument 'format'`, which points at matplotlib rather than at
+        # the setting the user actually got wrong.
+        msg = (
+            f"savefig_kwargs must not set 'format': the snapshot format is fixed "
+            f"to {ext!r} by the extension. Remove it from the "
+            f"snapshot_matplotlib_savefig_kwargs INI option or the per-call "
+            f"snapshot_matplotlib(savefig_kwargs=...) override."
+        )
+        raise ValueError(msg)
+
     kwargs = dict(user_savefig_kwargs)
     metadata = dict(kwargs.get("metadata") or {})
     metadata.setdefault("Software", None)

@@ -91,6 +91,49 @@ def test_empty_collector_renders(tmp_path: Path, generator) -> None:
     assert out.read_text()
 
 
+@pytest.mark.parametrize(
+    "generator",
+    [generate_html_report, generate_basic_html_report],
+)
+def test_reports_escape_markup_in_records(tmp_path: Path, generator) -> None:
+    """Markup in test ids and messages is escaped, not injected.
+
+    Parametrize ids like ``test_plot[<lambda>]`` are routine; unescaped they
+    parse as HTML tags and vanish from the rendered report.
+    """
+    c = ResultCollector()
+    c.record(
+        ResultRecord(
+            test_name='test_plot[<lambda>-"x&y"]',
+            image_status=ImageMatchStatus.DIFF.value,
+            error_message='diff <b>bold</b> & "quoted"',
+        )
+    )
+    body = generator(c, tmp_path).read_text()
+    assert "<lambda>" not in body
+    assert "&lt;lambda&gt;" in body
+    assert "<b>bold</b>" not in body
+
+
+def test_report_urlencodes_image_paths(tmp_path: Path) -> None:
+    """`#` or `?` in a parametrize id must not truncate the image URL.
+
+    An unencoded `test_plot[q#1].png` src stops at the `#` — the browser
+    requests `test_plot[q` and the report card shows a broken image.
+    """
+    c = ResultCollector()
+    c.record(
+        ResultRecord(
+            test_name="test_plot[q#1]",
+            image_status=ImageMatchStatus.DIFF.value,
+            result_image="test_plots/test_plot[q#1].png",
+        )
+    )
+    body = generate_html_report(c, tmp_path).read_text()
+    assert 'src="test_plots/test_plot%5Bq%231%5D.png"' in body
+    assert 'src="test_plots/test_plot[q#1].png"' not in body
+
+
 def test_failed_only_html_report_excludes_passes(tmp_path: Path) -> None:
     """`generate_failed_only_html_report` renders only failed records.
 

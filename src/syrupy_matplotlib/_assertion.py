@@ -13,12 +13,16 @@ no generic passthrough. We subclass to:
 
 from __future__ import annotations
 
+import weakref
 from typing import TYPE_CHECKING
 from typing import Any
 
+from matplotlib.figure import Figure
 from syrupy.assertion import SnapshotAssertion
 
+from ._comparison import run_comparison
 from ._extension import MplFigureExtension
+from ._extension import _coerce_bytes
 from ._reporting import ResultRecord
 from ._types import ImageMatchStatus
 from ._types import ImageResult
@@ -29,6 +33,7 @@ if TYPE_CHECKING:
     from syrupy.session import SnapshotSession
 
     from ._params import SnapshotParams
+    from ._reporting import ResultCollector
 
 
 class MplSnapshotAssertion(SnapshotAssertion):
@@ -57,7 +62,7 @@ class MplSnapshotAssertion(SnapshotAssertion):
         auto: Initial value for the auto-discover / auto-assert /
             auto-close behavior. May be flipped per-test via
             ``snapshot_matplotlib(auto=...)``.
-        """  # noqa: D205
+        """  # ruff: ignore[missing-blank-line-after-summary]
         super().__init__(
             session=session,
             extension_class=extension_class,
@@ -66,7 +71,9 @@ class MplSnapshotAssertion(SnapshotAssertion):
         )
         self._mpl_params: SnapshotParams = mpl_params
         self._mpl_auto: bool = auto
-        self._mpl_asserted_fig_ids: set[int] = set()
+        # Weak, so a closed figure's entry dies with it — a plain id() set
+        # would let a new figure reusing the address masquerade as asserted.
+        self._mpl_asserted_figs: weakref.WeakSet[Figure] = weakref.WeakSet()
 
     def __call__(  # ty: ignore[invalid-method-override]
         self,
@@ -86,7 +93,8 @@ class MplSnapshotAssertion(SnapshotAssertion):
 
         Matplotlib-specific kwargs are stashed temporarily on `self`;
         syrupy-native kwargs forward to the parent's `__call__`. All
-        overrides are reverted by `_post_assert` after the assertion runs.
+        overrides are reverted by `_post_assert` after the assertion runs —
+        use `set_defaults()` for values that must hold for the whole test.
 
         Args:
             tolerance: RMS threshold override.
@@ -129,14 +137,60 @@ class MplSnapshotAssertion(SnapshotAssertion):
             extension_class=extension_class,
         )
 
+    def set_defaults(
+        self,
+        *,
+        tolerance: float | None = None,
+        savefig_kwargs: dict[str, Any] | None = None,
+        remove_text: bool | None = None,
+        auto: bool | None = None,
+    ) -> MplSnapshotAssertion:
+        """Set defaults for every later assertion made through this fixture.
+
+        `snapshot_matplotlib(...)` applies its overrides to the next
+        assertion only — they are reverted by `_post_assert`. This method
+        rebinds the fixture's own params instead, so the values hold for
+        every assertion in the test, including the ones the auto path makes
+        at the end of the call phase.
+
+        Intended for wrapper fixtures that raise the bar for a whole
+        package::
+
+            @pytest.fixture
+            def snapshot_matplotlib(snapshot_matplotlib):
+                return snapshot_matplotlib.set_defaults(tolerance=5.0)
+
+        `style` and `backend` are absent for the same reason `merge()`
+        omits them: they must be active before the figure is drawn.
+
+        Args:
+            tolerance: RMS threshold for every later assertion.
+            savefig_kwargs: Extra `Figure.savefig()` kwargs (replaces, does
+                not merge).
+            remove_text: Whether to strip tick labels and titles.
+            auto: Enable/disable auto-discover / auto-assert / auto-close.
+
+        Returns:
+            `self`, so the call can be returned straight from a fixture.
+        """
+        self._mpl_params = self._mpl_params.merge(
+            tolerance=tolerance,
+            savefig_kwargs=savefig_kwargs,
+            remove_text=remove_text,
+        )
+        if auto is not None:
+            self._mpl_auto = bool(auto)
+        return self
+
     def _assert(self, data: Any) -> bool:
         """Stamp per-call state onto the extension, then delegate to syrupy.
 
         When the on-disk baseline is missing, syrupy's `_assert` returns
         `False` without calling `extension.matches()`, so no comparison
         record is written and the session summary undercounts the failure.
-        We synthesize a `MISSING` record afterwards to keep the summary
-        consistent.
+        We build the `MISSING` record afterwards to keep the summary
+        consistent, writing the rendered figure to `figure-report/` so the
+        report has something to show.
 
         Args:
             data: The left-hand operand of `==` (a `Figure` for the default
@@ -153,7 +207,8 @@ class MplSnapshotAssertion(SnapshotAssertion):
             ext._mpl_test_filepath = self.test_location.filepath
             ext._mpl_last_stem = stem
             ext._mpl_last_failure_message = None
-        self._mpl_asserted_fig_ids.add(id(data))
+        if isinstance(data, Figure):
+            self._mpl_asserted_figs.add(data)
 
         success = super()._assert(data)
 
@@ -167,15 +222,11 @@ class MplSnapshotAssertion(SnapshotAssertion):
         if latest is None or latest.recalled_data is not None:
             return success
         # Syrupy bypassed `matches()` due to missing baseline. Record it.
-        missing = ImageResult(
-            status=ImageMatchStatus.MISSING,
-            tolerance=self._mpl_params.tolerance,
-            error_message="Baseline image not found on disk.",
-        )
-        ext._mpl_last_failure_message = missing.error_message
         collector = ext._mpl_collector
         if collector is None:  # pragma: no cover
             return success
+        missing = self._build_missing_result(ext, collector, latest.asserted_data, stem)
+        ext._mpl_last_failure_message = missing.error_message
         collector.record(
             ResultRecord.from_image_result(
                 test_name=f"{self.test_location.nodeid}::{stem}",
@@ -184,3 +235,44 @@ class MplSnapshotAssertion(SnapshotAssertion):
             )
         )
         return success
+
+    def _build_missing_result(
+        self,
+        ext: MplFigureExtension,
+        collector: ResultCollector,
+        serialized: Any,
+        stem: str,
+    ) -> ImageResult:
+        """Build the `MISSING` result, saving the rendered figure when possible.
+
+        A missing baseline is the one failure mode where the user has nothing
+        to compare against, which makes seeing what was actually drawn more
+        useful than usual — so the serialized PNG is written under
+        `figure-report/` and linked from the result, exactly as a `DIFF`
+        would be.
+
+        Args:
+            ext: The stamped extension instance.
+            collector: Collector holding the artifact root.
+            serialized: Bytes syrupy serialized for this assertion, or `None`
+                when serialization raised.
+            stem: Filename stem of the current snapshot.
+
+        Returns:
+            A `MISSING` `ImageResult`, carrying `actual_path` when the
+            rendered figure could be written.
+        """
+        if serialized is None or collector.results_root is None:
+            return ImageResult(
+                status=ImageMatchStatus.MISSING,
+                tolerance=self._mpl_params.tolerance,
+                error_message="Baseline image not found on disk.",
+            )
+        return run_comparison(
+            test_bytes=_coerce_bytes(serialized),
+            baseline_bytes=None,
+            tolerance=self._mpl_params.tolerance,
+            diff_dir=collector.results_root / ext._artifact_subdir(),
+            stem=stem,
+            ext=ext.file_extension,
+        )

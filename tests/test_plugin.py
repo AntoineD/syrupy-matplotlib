@@ -170,6 +170,49 @@ def test_per_call_override_does_not_persist(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(failed=1)
 
 
+def test_set_defaults_applies_to_every_assertion(pytester: pytest.Pytester) -> None:
+    """A wrapper fixture's `set_defaults` holds for the whole test.
+
+    Mirror image of `test_per_call_override_does_not_persist`: both figures
+    change, and both assertions must ride the wrapper's huge tolerance. With
+    `snapshot_matplotlib(tolerance=...)` in the wrapper — the recipe the
+    README used to show — the second assertion would fall back to the default
+    tolerance and fail.
+    """
+    pytester.makeconftest("""\
+        import pytest
+
+        @pytest.fixture
+        def snapshot_matplotlib(snapshot_matplotlib):
+            return snapshot_matplotlib.set_defaults(tolerance=1000)
+    """)
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            import matplotlib.pyplot as plt
+
+            def test_two(snapshot_matplotlib):
+                f1, a1 = plt.subplots(); a1.plot([1, 2, 3])
+                assert f1 == snapshot_matplotlib
+                f2, a2 = plt.subplots(); a2.plot([1, 2, 3])
+                assert f2 == snapshot_matplotlib
+        """)
+    )
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=1)
+
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            import matplotlib.pyplot as plt
+
+            def test_two(snapshot_matplotlib):
+                f1, a1 = plt.subplots(); a1.plot([3, 2, 1])
+                assert f1 == snapshot_matplotlib
+                f2, a2 = plt.subplots(); a2.plot([3, 2, 1])
+                assert f2 == snapshot_matplotlib
+        """)
+    )
+    pytester.runpytest("-v").assert_outcomes(passed=1)
+
+
 def test_unknown_policy_kwarg_rejected(pytester: pytest.Pytester) -> None:
     """Removed `policy=` kwarg raises a TypeError at call time."""
     pytester.makepyfile(
@@ -267,14 +310,18 @@ def test_unused_snapshot_fails(pytester: pytest.Pytester) -> None:
 
 
 def test_png_in_ignore_list_warns(pytester: pytest.Pytester) -> None:
-    """Passing `--snapshot-ignore-file-extensions=png` emits a UserWarning."""
+    """Passing `--snapshot-ignore-file-extensions=png` warns in the summary.
+
+    The warning goes through `Config.issue_config_time_warning`, so it lands
+    in pytest's own warnings summary — no `-W default` needed, and it can't
+    be lost to the user's stderr filters the way a bare `warnings.warn`
+    during `pytest_configure` was.
+    """
     pytester.makepyfile(test_plots=SIMPLE_TEST)
     pytester.runpytest("--snapshot-update")
 
-    result = pytester.runpytest(
-        "--snapshot-ignore-file-extensions=png", "-v", "-W", "default"
-    )
-    result.stderr.fnmatch_lines(["*will not detect unused baselines*"])
+    result = pytester.runpytest("--snapshot-ignore-file-extensions=png", "-v")
+    result.stdout.fnmatch_lines(["*will not detect unused baselines*"])
 
 
 def test_unused_snapshot_warn_only(pytester: pytest.Pytester) -> None:
@@ -570,6 +617,40 @@ def test_auto_ignores_pre_existing_figures(pytester: pytest.Pytester) -> None:
     assert sorted(p.name for p in snap_dir.glob("*.png")) == ["test_auto.png"]
 
 
+def test_auto_discovers_figure_reusing_a_closed_number(
+    pytester: pytest.Pytester,
+) -> None:
+    """A figure recycling a closed pre-existing figure's number is still seen.
+
+    matplotlib numbers a new figure `max(live numbers) + 1`, so closing the
+    only open figure hands its number to the next one. Number-based baseline
+    tracking treated that newcomer as pre-existing: no auto-assert, no
+    auto-close, and the test passed green having compared nothing.
+    """
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            import matplotlib.pyplot as plt
+            from matplotlib._pylab_helpers import Gcf
+
+            _PRE_FIG = plt.figure()
+
+            def test_reused_number(snapshot_matplotlib):
+                pre_num = _PRE_FIG.number
+                plt.close(_PRE_FIG)
+                fig, ax = plt.subplots()
+                assert fig.number == pre_num  # the number really is recycled
+                ax.plot([1, 2, 3])
+
+            def test_new_figure_was_closed():
+                assert len(Gcf.figs) == 0
+        """)
+    )
+    result = pytester.runpytest("--snapshot-update", "-v")
+    result.assert_outcomes(passed=2)
+    snap_dir = pytester.path / "__snapshots__" / "test_plots"
+    assert (snap_dir / "test_reused_number.png").exists()
+
+
 def test_auto_asserts_multiple_figures(pytester: pytest.Pytester) -> None:
     """Multiple unasserted figures all get auto-asserted and auto-closed."""
     pytester.makepyfile(
@@ -591,3 +672,96 @@ def test_auto_asserts_multiple_figures(pytester: pytest.Pytester) -> None:
     pngs = sorted(p.name for p in snap_dir.glob("*.png"))
     assert "test_two_figs.png" in pngs
     assert "test_two_figs.1.png" in pngs
+
+
+def test_auto_warns_when_nothing_compared(pytester: pytest.Pytester) -> None:
+    """A bare `Figure()` is invisible to auto-discovery, so the run warns.
+
+    Without the warning the test passes green while comparing nothing at
+    all — the failure mode is indistinguishable from a real pass.
+    """
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            from matplotlib.figure import Figure
+
+            def test_bare_figure(snapshot_matplotlib):
+                fig = Figure()
+                fig.subplots().plot([1, 2, 3])
+        """)
+    )
+    result = pytester.runpytest("--snapshot-update", "-v")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*snapshot_matplotlib compared no figure*"])
+
+
+def test_explicit_assertion_of_bare_figure_does_not_warn(
+    pytester: pytest.Pytester,
+) -> None:
+    """An explicit assertion counts as a comparison even for a non-pyplot figure."""
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            from matplotlib.figure import Figure
+
+            def test_bare_figure(snapshot_matplotlib):
+                fig = Figure()
+                fig.subplots().plot([1, 2, 3])
+                assert fig == snapshot_matplotlib
+        """)
+    )
+    result = pytester.runpytest("--snapshot-update", "-v")
+    result.assert_outcomes(passed=1)
+    # Counting warnings would be hostage to whatever the installed matplotlib
+    # deprecates this release; the message is the contract.
+    assert "compared no figure" not in result.stdout.str()
+
+
+def test_auto_off_does_not_warn(pytester: pytest.Pytester) -> None:
+    """`auto=False` opts out of the check along with the rest of auto mode."""
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            def test_no_figures(snapshot_matplotlib):
+                snapshot_matplotlib(auto=False)
+        """)
+    )
+    result = pytester.runpytest("--snapshot-update", "-v")
+    result.assert_outcomes(passed=1)
+    assert "compared no figure" not in result.stdout.str()
+
+
+def test_auto_reports_serialization_error_not_mismatch(
+    pytester: pytest.Pytester,
+) -> None:
+    """A serialize failure under auto mode names the real error.
+
+    Syrupy's `_assert` swallows every exception and returns `False`, so the
+    auto path sees a plain failure with no comparison message behind it.
+    Falling back to "figure mismatch" would blame the figure for a bad
+    `savefig_kwargs` and send the user hunting a pixel diff that never ran.
+    """
+    pytester.makepyfile(test_plots=AUTO_TEST)
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=1)
+
+    pytester.makeini(
+        '[pytest]\nsnapshot_matplotlib_savefig_kwargs = {"format": "pdf"}\n'
+    )
+    result = pytester.runpytest()
+
+    result.assert_outcomes(failed=1, errors=0)
+    result.stdout.fnmatch_lines(["*ValueError: savefig_kwargs must not set 'format'*"])
+    assert "figure mismatch" not in result.stdout.str()
+
+
+def test_composed_style_list_renders(pytester: pytest.Pytester) -> None:
+    """A multi-style INI value reaches `plt.style.context` as a list.
+
+    Handed the raw `"classic,_classic_test_patch"` string, matplotlib
+    raised `OSError` during fixture setup and every test in the suite
+    errored out before its body ran.
+    """
+    pytester.makepyfile(test_plots=SIMPLE_TEST)
+    pytester.makeini(
+        "[pytest]\nsnapshot_matplotlib_style = classic, _classic_test_patch\n"
+    )
+
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=1)
+    pytester.runpytest("-v").assert_outcomes(passed=1, errors=0)

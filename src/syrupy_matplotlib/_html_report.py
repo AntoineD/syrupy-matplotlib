@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 from jinja2 import Environment
 from jinja2 import PackageLoader
-from jinja2 import select_autoescape
 
 from ._reporting import RunSummary
 
@@ -55,9 +54,11 @@ def _render(
     Returns:
         Rendered HTML.
     """
+    # Not `select_autoescape`: it matches template-name suffixes, and these
+    # templates end in ".jinja2", so it would silently leave escaping off.
     env = Environment(
         loader=PackageLoader("syrupy_matplotlib", "templates"),
-        autoescape=select_autoescape(["html"]),
+        autoescape=True,
     )
     template = env.get_template(template_name)
     if records_filter is None:
