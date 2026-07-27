@@ -47,3 +47,16 @@ def __getattr__(name: str) -> Any:
     from importlib import import_module
 
     return getattr(import_module(f".{module_name}", __name__), name)
+
+
+def __dir__() -> list[str]:
+    """List module attributes including the lazily resolved exports.
+
+    PEP 562 pairs `__getattr__` with `__dir__`: without it, `dir()`, tab
+    completion, and doc tooling only see the names already materialized in
+    the module namespace — never the lazy exports.
+
+    Returns:
+        Sorted union of the module globals and `__all__`.
+    """
+    return sorted(set(globals()) | set(__all__))
