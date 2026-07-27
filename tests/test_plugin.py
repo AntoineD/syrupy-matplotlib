@@ -310,14 +310,18 @@ def test_unused_snapshot_fails(pytester: pytest.Pytester) -> None:
 
 
 def test_png_in_ignore_list_warns(pytester: pytest.Pytester) -> None:
-    """Passing `--snapshot-ignore-file-extensions=png` emits a UserWarning."""
+    """Passing `--snapshot-ignore-file-extensions=png` warns in the summary.
+
+    The warning goes through `Config.issue_config_time_warning`, so it lands
+    in pytest's own warnings summary — no `-W default` needed, and it can't
+    be lost to the user's stderr filters the way a bare `warnings.warn`
+    during `pytest_configure` was.
+    """
     pytester.makepyfile(test_plots=SIMPLE_TEST)
     pytester.runpytest("--snapshot-update")
 
-    result = pytester.runpytest(
-        "--snapshot-ignore-file-extensions=png", "-v", "-W", "default"
-    )
-    result.stderr.fnmatch_lines(["*will not detect unused baselines*"])
+    result = pytester.runpytest("--snapshot-ignore-file-extensions=png", "-v")
+    result.stdout.fnmatch_lines(["*will not detect unused baselines*"])
 
 
 def test_unused_snapshot_warn_only(pytester: pytest.Pytester) -> None:

@@ -14,7 +14,6 @@ from __future__ import annotations
 import contextlib
 import sys
 import time
-import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -329,15 +328,22 @@ def _warn_if_png_ignored(config: pytest.Config) -> None:
     files whose extension is in the ignore list; ignoring `png` would
     silently disable figure discovery.
 
+    Routed through `issue_config_time_warning`: a bare `warnings.warn`
+    during `pytest_configure` runs before pytest's warning capture is
+    installed, so it bypassed the warnings summary and only surfaced on
+    stderr when the user's filters happened to allow it.
+
     Args:
         config: The pytest `Config` object.
     """
     exts = config.option.ignore_file_extensions or []
     if any(e.strip().lstrip(".").lower() == "png" for e in exts):
-        warnings.warn(
-            "--snapshot-ignore-file-extensions includes 'png' — "
-            "syrupy-matplotlib will not detect unused baselines.",
-            stacklevel=1,
+        config.issue_config_time_warning(
+            UserWarning(
+                "--snapshot-ignore-file-extensions includes 'png' — "
+                "syrupy-matplotlib will not detect unused baselines."
+            ),
+            stacklevel=2,
         )
 
 
