@@ -97,6 +97,8 @@ main { padding: 1.5rem 2rem; }
 .badge-missing { background: var(--color-missing); }
 .badge-diff    { background: var(--color-fail); }
 .badge-match   { background: var(--color-pass); }
+.badge-generated { background: #0d6efd; }
+.badge-variant { background: #6f42c1; text-transform: none; }
 
 .card-body {
   padding: 1rem;

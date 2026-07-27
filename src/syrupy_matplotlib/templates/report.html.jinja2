@@ -44,6 +44,9 @@
   <div class="card-header" onclick="toggle(this)">
     <span class="badge badge-{{ verdict }}">{{ verdict }}</span>
     <span class="badge badge-{{ record.image_status }}" title="image">I</span>
+    {% if record.baseline_variant %}
+    <span class="badge badge-variant" title="baseline variant">{{ record.baseline_variant }}</span>
+    {% endif %}
     <span class="test-name">{{ record.test_name }}</span>
     {% if record.rms is not none %}
     <span title="RMS">{{ "%.3f"|format(record.rms) }}</span>
@@ -58,7 +61,7 @@
       {% if record.baseline_image %}
       <figure class="img-block">
         <img src="{{ record.baseline_image|urlencode }}" alt="baseline" loading="lazy">
-        <figcaption>Baseline</figcaption>
+        <figcaption>Baseline{% if record.baseline_variant %} ({{ record.baseline_variant }}){% endif %}</figcaption>
       </figure>
       {% endif %}
       {% if record.diff_image %}

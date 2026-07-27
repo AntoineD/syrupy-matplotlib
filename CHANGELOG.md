@@ -28,8 +28,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rewrote baselines that existing variants may no longer match.
 
 - The JSON report records which baseline each comparison used
-  (`baseline_variant`), and the terminal summary names the variants a run
-  read. Report format version is now 3.
+  (`baseline_variant`), the HTML reports label it, and the terminal summary
+  names the variants a run read. Report format version is now 3.
 
 ## [0.2.0] - 2026-07-26
 
