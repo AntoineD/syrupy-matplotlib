@@ -52,14 +52,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fragments keep their age gate, where deleting a live session's file would
   lose results for good.
 
-- The xdist session UID is resolved in `pytest_configure` instead of
-  `pytest_sessionstart`. xdist calls `pytest_configure_node` from
-  `DSession.pytest_sessionstart`, so the old placement worked only because
-  that hookimpl is marked `trylast`. Were it ever `tryfirst`, workers would
-  take the fallback `"main"` UID while the controller merged on the generated
-  one, and every worker's results would vanish from the terminal summary and
-  from every report with nothing logged.
-
 - A missing baseline now writes the rendered figure to `figure-report/` and
   links it from the report, as documented. Syrupy skips the extension's
   `matches()` when there is no baseline, so the record carried no image at
@@ -72,15 +64,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fail — assert the figure explicitly, or pass `auto=False` when a test
   deliberately compares nothing.
 
-- A blank INI value is treated as unset for every `snapshot_matplotlib_*`
-  option. `snapshot_matplotlib_remove_text =` used to abort the run with
-  "Expected true/false", and a blank style or backend reached matplotlib as
-  the empty string.
+- A blank or whitespace-only INI value is treated as unset for every
+  `snapshot_matplotlib_*` option, falling back to the default.
+  `snapshot_matplotlib_remove_text =` used to abort the run with "Expected
+  true/false", and a blank style or backend reached matplotlib as the empty
+  string. (Whitespace-only values survive only in `pyproject.toml`, which
+  preserves whitespace where `.ini` sources strip it.)
 
-- The xdist fragment sweep no longer deletes a concurrently running session's
-  unmerged result fragments; it only removes fragments older than an hour.
-  Two runs sharing a rootdir (`tox -p`, two CI jobs on one checkout) could
-  silently drop each other's worker results from the report.
+- Orphaned xdist result fragments left in `figure-report/` by a crashed run
+  are cleaned up at the start of the next session instead of accumulating
+  forever — but only fragments older than an hour, so two sessions sharing
+  a rootdir (`tox -p`, two CI jobs on one checkout) cannot silently drop
+  each other's unmerged worker results from the report.
 
 - A baseline with different pixel dimensions (a figsize or dpi change) now
   fails as a normal comparison with a clear message, and is counted in the
@@ -101,10 +96,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Update mode no longer reports a baseline as "created" when serializing
   the figure fails (e.g. rejected `savefig_kwargs`).
 
-- Orphaned xdist result fragments left in `figure-report/` by a crashed
-  run are now cleaned up at the start of the next session instead of
-  accumulating forever.
-
 - Disabling syrupy (`-p no:syrupy`) now produces a one-line usage error
   saying the plugin requires it, instead of an `INTERNALERROR`
   `AttributeError` traceback.
@@ -114,10 +105,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pytest.main()` called twice) no longer read the previous session's
   collector.
 
-- A whitespace-only `snapshot_matplotlib_auto` is treated as unset instead of
-  raising. Only reachable from `pyproject.toml`, which preserves whitespace
-  where `.ini` sources strip it.
-
 - Malformed `--snapshot-matplotlib-*` flags and `snapshot_matplotlib_*` INI
   values now report as a pytest usage error rather than an `INTERNALERROR`
   traceback.
@@ -126,11 +113,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   option at fault, instead of colliding inside `Figure.savefig()` with
   `TypeError: got multiple values for keyword argument 'format'`.
 
-- Support matplotlib 3.11. Its `set_font_settings_for_testing()` now sets
+- Support matplotlib 3.11, whose `set_font_settings_for_testing()` sets
   `text.hinting = "default"` (was `"none"`) and no longer sets
-  `text.hinting_factor`, which broke the determinism tests. Those tests now
-  derive the expected rcParams by running the helper instead of hardcoding
-  its values, so they track matplotlib's choices across releases.
+  `text.hinting_factor`. See the baseline-regeneration note below.
 
 - The report directory may not resolve to the rootpath **or any of its
   ancestors**. The old guard compared the unresolved path to the rootpath
