@@ -449,14 +449,18 @@ class Plugin:
         """Clear what an earlier session left in the artifact directory.
 
         Controller-only: a worker shares the directory with its siblings and
-        would delete artifacts they are still writing.
+        would delete artifacts they are still writing. Skipped under
+        ``--collect-only``, which runs no comparison and writes nothing — a
+        quick collection pass must not destroy the failure report the user
+        may be reading.
 
         Args:
-            session: The current pytest session (unused).
+            session: The current pytest session.
         """
-        if not self._is_xdist_worker:
-            _sweep_stale_fragments(self.diff_dir)
-            _clear_previous_artifacts(self.diff_dir)
+        if self._is_xdist_worker or session.config.option.collectonly:
+            return
+        _sweep_stale_fragments(self.diff_dir)
+        _clear_previous_artifacts(self.diff_dir)
 
     def pytest_sessionfinish(
         self,
@@ -465,10 +469,16 @@ class Plugin:
     ) -> None:
         """Merge xdist result fragments and write configured reports.
 
+        Skipped under ``--collect-only`` — no comparisons ran, and an empty
+        report (or an empty fragment) would overwrite what the previous real
+        run wrote.
+
         Args:
             session: The current pytest session.
             exitstatus: Session exit code (unused).
         """
+        if session.config.option.collectonly:
+            return
         if self._is_xdist_worker:
             self._save_xdist_results(session.config)
             return

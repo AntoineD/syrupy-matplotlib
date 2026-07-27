@@ -289,6 +289,29 @@ def test_update_run_clears_the_previous_failure_report(
     assert not (pytester.path / "figure-report").exists()
 
 
+def test_collect_only_preserves_the_previous_failure_report(
+    pytester: pytest.Pytester,
+) -> None:
+    """`--collect-only` runs no comparison, so it must not wipe the report.
+
+    The session-start sweep exists so the directory describes the last run —
+    but a collection pass is not a run, and destroying the report the user
+    is inspecting mid-debug is pure loss.
+    """
+    pytester.makepyfile(test_plots=REPORT_TEST)
+    pytester.runpytest("--snapshot-update")
+
+    pytester.makepyfile(test_plots=CHANGED_TEST)
+    pytester.runpytest().assert_outcomes(passed=1, failed=1)
+    report = pytester.path / "figure-report" / "report.html"
+    assert report.exists()
+
+    pytester.runpytest("--collect-only")
+
+    assert report.exists()
+    assert list((pytester.path / "figure-report").rglob("*.png"))
+
+
 def test_report_dir_flag_relocates_artifacts(pytester: pytest.Pytester) -> None:
     """Reports and comparison images follow `--snapshot-matplotlib-report-dir`.
 
