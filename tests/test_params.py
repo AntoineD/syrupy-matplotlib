@@ -26,6 +26,8 @@ def _cfg(
         remove_text=remove_text,
         savefig_kwargs=savefig_kwargs if savefig_kwargs is not None else {},
         report_dir=Path("figure-report"),
+        variant="",
+        write_variants=False,
     )
 
 

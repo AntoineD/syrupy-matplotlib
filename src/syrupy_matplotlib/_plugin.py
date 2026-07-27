@@ -114,6 +114,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "Overrides snapshot_matplotlib_report_dir."
         ),
     )
+    group.addoption(
+        "--snapshot-matplotlib-pin-variant",
+        action="store_true",
+        default=False,
+        help=(
+            "With --snapshot-update, write the baselines this run renders as "
+            "variants pinned to the installed matplotlib "
+            "(__snapshots__/<module>/mpl-<major>.<minor>/) instead of "
+            "rewriting the canonical baselines. Comparison runs pick those up "
+            "automatically and need no flag."
+        ),
+    )
     parser.addini(
         "snapshot_matplotlib_report_dir",
         help="Default directory for comparison artifacts and reports.",
@@ -235,6 +247,9 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     ext_module.MplFigureExtension._mpl_rootpath = None
     ext_module.MplFigureExtension._mpl_update_snapshots = False
     ext_module.MplFigureExtension._mpl_keep_match_artifacts = False
+    ext_module.MplFigureExtension._mpl_variant = ""
+    ext_module.MplFigureExtension._mpl_write_variants = False
+    ext_module.MplFigureExtension._mpl_scanned_dirs.clear()
 
 
 def _print_comparison_summary(
@@ -242,6 +257,7 @@ def _print_comparison_summary(
     records: list[ResultRecord],
     *,
     verbose: bool,
+    deleted_variants: list[str] | None = None,
 ) -> None:
     """Write the image counts block to the pytest terminal.
 
@@ -252,7 +268,10 @@ def _print_comparison_summary(
         terminalreporter: Pytest's terminal reporter.
         records: All comparison records collected this session.
         verbose: When ``True``, list the node ids under each bucket.
+        deleted_variants: Snapshots whose variant baseline was removed as
+            redundant, or ``None`` when none were.
     """
+    deleted = deleted_variants or []
     ok_images: list[str] = []
     created_images: list[str] = []
     failed_images: list[str] = []
@@ -268,18 +287,25 @@ def _print_comparison_summary(
             case _:
                 failed_images.append(r.test_name)
 
-    if not (ok_images or created_images or failed_images):
+    if not (ok_images or created_images or failed_images or deleted):
         return
 
     terminalreporter.write_sep("=", "snapshot-matplotlib")
-    terminalreporter.write_line(
-        _format_category_line("Images", ok_images, created_images, failed_images)
-    )
+    line = _format_category_line("Images", ok_images, created_images, failed_images)
+    if deleted:
+        line += f", {len(deleted)} variant deleted"
+    variants_used = sorted({r.baseline_variant for r in records if r.baseline_variant})
+    if variants_used:
+        # Only when a variant baseline was really compared against: a suite
+        # without variant directories must read exactly as it did before.
+        line += f" (variant baselines: {', '.join(variants_used)})"
+    terminalreporter.write_line(line)
 
     if verbose:
         _write_bucket(terminalreporter, "OK images", ok_images)
         _write_bucket(terminalreporter, "Created images", created_images)
         _write_bucket(terminalreporter, "Failed images", failed_images)
+        _write_bucket(terminalreporter, "Deleted variant images", deleted)
 
 
 def _format_category_line(
@@ -420,6 +446,30 @@ class Plugin:
         MplFigureExtension._mpl_rootpath = self.rootpath
         MplFigureExtension._mpl_update_snapshots = self.update_snapshots
         MplFigureExtension._mpl_keep_match_artifacts = bool(self.config.report)
+        MplFigureExtension._mpl_variant = self.config.variant
+        MplFigureExtension._mpl_write_variants = self.config.write_variants
+
+    def pytest_report_header(self) -> str | None:
+        """Announce that this run pins baselines to its environment.
+
+        Only variant-writing runs get a header line. A comparison run cannot
+        know whether any variant exists until tests execute, and printing the
+        tag unconditionally would put a line in front of every suite that has
+        the plugin installed and never renders a figure. Comparison runs that
+        do read a variant say so in the terminal summary instead.
+
+        Returns:
+            The header line, or `None` when this run writes canonical
+            baselines.
+        """
+        if not self.config.write_variants:
+            return None
+        # ASCII only: this line goes through the terminal writer, whose
+        # encoding on Windows is cp1252.
+        return (
+            f"snapshot-matplotlib: environment '{self.config.variant}' "
+            "-> pinning variant baselines"
+        )
 
     @pytest.hookimpl(wrapper=True)
     def pytest_runtest_call(self, item: pytest.Item) -> Generator[None, None, None]:
@@ -521,6 +571,33 @@ class Plugin:
             terminalreporter,
             self.collector.records,
             verbose=int(config.option.verbose) >= 1,
+            deleted_variants=self.collector.deleted_variants,
+        )
+        self._warn_about_stale_variants(terminalreporter)
+
+    def _warn_about_stale_variants(self, terminalreporter: Any) -> None:
+        """Warn that a canonical re-baseline may have outdated the variants.
+
+        Only the environment a variant was generated in can say whether it
+        still differs from the canonical baseline, so the plugin cannot
+        refresh or verify them here — the other environments' runs will fail,
+        which is the signal to regenerate.
+
+        Best-effort under xdist: the directories are seen by the workers, and
+        this runs on the controller.
+
+        Args:
+            terminalreporter: Pytest's terminal reporter.
+        """
+        tags = self.collector.variant_dirs_present
+        if not (self.update_snapshots and tags) or self.config.write_variants:
+            return
+        # ASCII only: see the note in `_warn_if_png_ignored`.
+        terminalreporter.write_line(
+            "canonical baselines rewritten; variant baselines for "
+            f"{', '.join(sorted(tags))} may now be stale. Regenerate them with "
+            "--snapshot-update --snapshot-matplotlib-pin-variant in each of "
+            "those environments."
         )
 
     def _write_reports(self) -> None:
