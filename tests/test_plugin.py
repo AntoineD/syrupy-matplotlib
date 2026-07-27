@@ -617,6 +617,40 @@ def test_auto_ignores_pre_existing_figures(pytester: pytest.Pytester) -> None:
     assert sorted(p.name for p in snap_dir.glob("*.png")) == ["test_auto.png"]
 
 
+def test_auto_discovers_figure_reusing_a_closed_number(
+    pytester: pytest.Pytester,
+) -> None:
+    """A figure recycling a closed pre-existing figure's number is still seen.
+
+    matplotlib numbers a new figure `max(live numbers) + 1`, so closing the
+    only open figure hands its number to the next one. Number-based baseline
+    tracking treated that newcomer as pre-existing: no auto-assert, no
+    auto-close, and the test passed green having compared nothing.
+    """
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            import matplotlib.pyplot as plt
+            from matplotlib._pylab_helpers import Gcf
+
+            _PRE_FIG = plt.figure()
+
+            def test_reused_number(snapshot_matplotlib):
+                pre_num = _PRE_FIG.number
+                plt.close(_PRE_FIG)
+                fig, ax = plt.subplots()
+                assert fig.number == pre_num  # the number really is recycled
+                ax.plot([1, 2, 3])
+
+            def test_new_figure_was_closed():
+                assert len(Gcf.figs) == 0
+        """)
+    )
+    result = pytester.runpytest("--snapshot-update", "-v")
+    result.assert_outcomes(passed=2)
+    snap_dir = pytester.path / "__snapshots__" / "test_plots"
+    assert (snap_dir / "test_reused_number.png").exists()
+
+
 def test_auto_asserts_multiple_figures(pytester: pytest.Pytester) -> None:
     """Multiple unasserted figures all get auto-asserted and auto-closed."""
     pytester.makepyfile(

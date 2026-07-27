@@ -14,6 +14,7 @@ figures are drawn under reproducible settings.
 from __future__ import annotations
 
 import warnings
+import weakref
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
@@ -30,6 +31,8 @@ from ._plugin import Plugin
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from matplotlib.figure import Figure
 
 
 def generate_snapshot_assertion(
@@ -73,7 +76,14 @@ def generate_snapshot_assertion(
         plt.style.context(list(params.style), after_reset=True),
         deterministic_context(params.backend),
     ):
-        baseline_fig_nums = set(Gcf.figs)
+        # Weak, and by object rather than figure number: matplotlib hands a
+        # new figure `max(live numbers) + 1`, so closing a pre-existing
+        # figure recycles its number and a number set would treat the
+        # newcomer as pre-existing — silently exempt from auto-assert and
+        # auto-close.
+        baseline_figs: weakref.WeakSet[Figure] = weakref.WeakSet(
+            manager.canvas.figure for manager in Gcf.figs.values()
+        )
         assertion = MplSnapshotAssertion(
             session=request.config._syrupy,  # ty: ignore[unresolved-attribute]
             extension_class=MplFigureExtension,
@@ -82,31 +92,35 @@ def generate_snapshot_assertion(
             mpl_params=params,
             auto=plugin.config.auto,
         )
-        request.node.stash[AUTO_STATE_KEY] = (assertion, baseline_fig_nums)
+        request.node.stash[AUTO_STATE_KEY] = (assertion, baseline_figs)
         try:
             yield assertion
         finally:
-            close_auto_figures(assertion, baseline_fig_nums)
+            close_auto_figures(assertion, baseline_figs)
 
 
-def collect_new_figures(baseline_fig_nums: set[int]) -> list:
+def collect_new_figures(baseline_figs: weakref.WeakSet[Figure]) -> list[Figure]:
     """Return figures opened after the fixture started, in number order.
 
+    Membership is by figure object, not figure number — a number can be
+    recycled within the test (see the comment at the `WeakSet` creation),
+    while a live object cannot.
+
     Args:
-        baseline_fig_nums: Figure numbers that existed before fixture setup.
+        baseline_figs: Figures that existed before fixture setup.
 
     Returns:
-        Figures whose numbers are not in *baseline_fig_nums*.
+        Figures not in *baseline_figs*.
     """
     return [
-        Gcf.figs[num].canvas.figure
-        for num in sorted(Gcf.figs)
-        if num not in baseline_fig_nums
+        manager.canvas.figure
+        for _, manager in sorted(Gcf.figs.items())
+        if manager.canvas.figure not in baseline_figs
     ]
 
 
 def close_auto_figures(
-    assertion: MplSnapshotAssertion, baseline_fig_nums: set[int]
+    assertion: MplSnapshotAssertion, baseline_figs: weakref.WeakSet[Figure]
 ) -> None:
     """Close figures the fixture is responsible for, if auto mode is on.
 
@@ -115,11 +129,11 @@ def close_auto_figures(
 
     Args:
         assertion: The fixture's assertion object (carries `_mpl_auto`).
-        baseline_fig_nums: Figure numbers that existed before fixture setup.
+        baseline_figs: Figures that existed before fixture setup.
     """
     if not assertion._mpl_auto:
         return
-    for fig in collect_new_figures(baseline_fig_nums):
+    for fig in collect_new_figures(baseline_figs):
         plt.close(fig)
 
 
@@ -138,11 +152,11 @@ def run_auto_assertions(item: pytest.Item) -> None:
         RuntimeError: If the assertion was created with an unexpected
             extension type (should not happen in normal use).
     """
-    assertion, baseline_fig_nums = item.stash[AUTO_STATE_KEY]
+    assertion, baseline_figs = item.stash[AUTO_STATE_KEY]
     if not assertion._mpl_auto:
         return
 
-    new_figures = collect_new_figures(baseline_fig_nums)
+    new_figures = collect_new_figures(baseline_figs)
     if not new_figures and not assertion._mpl_asserted_figs:
         _warn_nothing_compared(item)
         return

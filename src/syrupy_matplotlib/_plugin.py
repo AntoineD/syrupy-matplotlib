@@ -27,7 +27,10 @@ from ._reporting import ResultCollector
 from ._types import ImageMatchStatus
 
 if TYPE_CHECKING:
+    import weakref
     from collections.abc import Generator
+
+    from matplotlib.figure import Figure
 
     from ._assertion import MplSnapshotAssertion
     from ._config import Config
@@ -42,9 +45,9 @@ __all__ = ["snapshot_matplotlib"]
 
 #: Stashed on `item.stash` so `pytest_runtest_call` can run auto-assertions
 #: during the call phase. Populated only when the fixture is requested.
-AUTO_STATE_KEY: pytest.StashKey[tuple[MplSnapshotAssertion, set[int]]] = (
-    pytest.StashKey()
-)
+AUTO_STATE_KEY: pytest.StashKey[
+    tuple[MplSnapshotAssertion, weakref.WeakSet[Figure]]
+] = pytest.StashKey()
 
 #: Age past which an unmerged xdist result fragment is considered orphaned.
 #: Generous on purpose — sweeping a live session's fragment loses its results
