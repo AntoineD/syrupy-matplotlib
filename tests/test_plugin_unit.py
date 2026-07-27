@@ -128,6 +128,17 @@ def test_sweep_stale_fragments_keeps_fresh_ones(tmp_path: Path) -> None:
     assert not old.exists()
 
 
+def test_sweep_stale_fragments_removes_orphaned_temp_files(tmp_path: Path) -> None:
+    """A `.json.tmp` left by a worker killed mid-write is swept like a fragment."""
+    tmp = _write_fragment(
+        tmp_path / "_results-deadbeef-gw0.json.tmp", _STALE_FRAGMENT_AGE_S * 2
+    )
+
+    _sweep_stale_fragments(tmp_path)
+
+    assert not tmp.exists()
+
+
 def test_sweep_stale_fragments_missing_dir_is_noop(tmp_path: Path) -> None:
     _sweep_stale_fragments(tmp_path / "absent")
 

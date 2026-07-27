@@ -100,6 +100,15 @@ def test_save_worker_json(tmp_path: Path) -> None:
     assert "t::a" in data
 
 
+def test_save_worker_json_leaves_no_temp_file(tmp_path: Path) -> None:
+    """The write-then-rename dance must not leave its scaffolding behind."""
+    collector = ResultCollector()
+    collector.record(ResultRecord.from_image_result("t::a", _passed_result()))
+    out = tmp_path / "fragment.json"
+    collector.save_worker_json(out)
+    assert [p.name for p in tmp_path.iterdir()] == ["fragment.json"]
+
+
 def test_collector_serialization_roundtrip() -> None:
     collector = ResultCollector()
     collector.record(ResultRecord.from_image_result("t::a", _passed_result()))

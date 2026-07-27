@@ -222,9 +222,16 @@ class ResultCollector:
     def save_worker_json(self, path: Path) -> None:
         """Serialize all records to a JSON file (used by xdist workers).
 
+        Written to a sibling temp file and renamed into place, so the
+        controller can never observe a half-written fragment — a worker
+        killed mid-write (OOM, timeout) would otherwise feed truncated JSON
+        into the session-end merge.
+
         Args:
             path: Destination path; parent directories are created as needed.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w") as f:
+        tmp = path.with_name(path.name + ".tmp")
+        with tmp.open("w") as f:
             json.dump(self.to_serializable(), f, indent=2)
+        tmp.replace(path)

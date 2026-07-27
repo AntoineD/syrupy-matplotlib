@@ -578,7 +578,10 @@ def _sweep_stale_fragments(diff_dir: Path) -> None:
         diff_dir: The `figure-report/` directory to sweep.
     """
     cutoff = time.time() - _STALE_FRAGMENT_AGE_S
-    for stale in diff_dir.glob("_results-*.json"):
+    # The trailing `*` also catches `.json.tmp` files a worker killed
+    # mid-write left behind (fragments are written to a temp name and
+    # renamed into place).
+    for stale in diff_dir.glob("_results-*.json*"):
         with contextlib.suppress(OSError):
             if stale.stat().st_mtime < cutoff:
                 stale.unlink()
