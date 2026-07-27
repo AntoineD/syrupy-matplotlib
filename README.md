@@ -146,9 +146,10 @@ globally with a wrapper fixture in `conftest.py` if needed.
 
 ## Auto-discover / auto-assert / auto-close
 
-The fixture tracks every figure created during the test. At teardown it
-compares each figure that was **not** asserted explicitly against its
-baseline and closes all figures it discovered.
+The fixture tracks every figure created during the test. At the end of the
+test's call phase it compares each figure that was **not** asserted
+explicitly against its baseline — so a mismatch is a regular test failure,
+not a teardown error — and at teardown it closes all figures it discovered.
 
 ```python
 def test_one_liner(snapshot_matplotlib):
@@ -337,15 +338,16 @@ At the end of every run the plugin prints a one-block summary:
 Images: 8 OK, 2 failed
 ```
 
-With `-v` (or higher), each non-empty bucket is expanded to list the
-pytest node ids that landed in it:
+With `-v` (or higher), each non-empty bucket is expanded to list its
+records — the pytest node id plus the snapshot stem, one entry per
+assertion:
 
 ```text
   OK images (8):
-    tests/test_plots.py::test_simple
+    tests/test_plots.py::test_simple::test_simple
     ...
   Failed images (2):
-    tests/test_plots.py::test_drift
+    tests/test_plots.py::test_drift::test_drift
 ```
 
 ## Unused-snapshot detection
