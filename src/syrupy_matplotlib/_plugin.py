@@ -343,9 +343,12 @@ def _warn_if_png_ignored(config: pytest.Config) -> None:
     """
     exts = config.option.ignore_file_extensions or []
     if any(e.strip().lstrip(".").lower() == "png" for e in exts):
+        # ASCII only: the message travels through the terminal writer, whose
+        # encoding on Windows is cp1252 — an em-dash arrives as byte 0x97 and
+        # breaks any UTF-8 consumer of the output (pytester, CI log viewers).
         config.issue_config_time_warning(
             UserWarning(
-                "--snapshot-ignore-file-extensions includes 'png' — "
+                "--snapshot-ignore-file-extensions includes 'png'; "
                 "syrupy-matplotlib will not detect unused baselines."
             ),
             stacklevel=2,
