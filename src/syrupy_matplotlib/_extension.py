@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -491,6 +492,11 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         write for any non-matching assertion in update mode, at the path
         `get_location` returned, which is the variant path in this mode.
 
+        Comparison artifacts survive only on the record that references
+        them: the report-mode ``GENERATED`` record carries the canonical
+        comparison, everything else is unlinked so a pin run without a
+        report leaves `figure-report/` empty.
+
         Args:
             params: Effective per-assertion parameters.
             stem: Filename stem of the current snapshot.
@@ -506,7 +512,10 @@ class MplFigureExtension(SingleFileSnapshotExtension):
                 variant only.
         """
         self._mpl_last_failure_message = None
-        matched = ImageResult(status=ImageMatchStatus.MATCH, tolerance=params.tolerance)
+        # Every record below describes a comparison against the canonical
+        # baseline; the variant read by `get_location` only feeds the
+        # byte-equality shortcut.
+        self._mpl_baseline_variant = None
         variant_path = self._current_variant_path()
         canonical_bytes = self._read_canonical_bytes()
         # The practical case — variant read fine, canonical deleted — is
@@ -531,7 +540,7 @@ class MplFigureExtension(SingleFileSnapshotExtension):
                 variant_path.unlink()
                 if self._mpl_collector is not None:  # pragma: no branch
                     self._mpl_collector.record_deletion(stem)
-            self._record(stem, matched)
+            self._record(stem, canonical_result)
             return True
 
         if (
@@ -539,11 +548,42 @@ class MplFigureExtension(SingleFileSnapshotExtension):
             and variant_path.exists()
             and variant_path.read_bytes() == test_bytes
         ):
-            self._record(stem, matched)
+            # The mismatch artifacts describe a difference the existing
+            # variant already answers; no record references them.
+            self._discard_artifacts(canonical_result)
+            self._record(
+                stem,
+                ImageResult(status=ImageMatchStatus.MATCH, tolerance=params.tolerance),
+            )
             return True
 
-        self._record(stem, _GENERATED_RESULT)
+        if self._mpl_keep_match_artifacts:
+            # A report is coming: keep the canonical comparison on the
+            # GENERATED record so the report can show what the variant
+            # answers. The mismatch message would misread as a failure.
+            self._record(
+                stem,
+                replace(
+                    canonical_result,
+                    status=ImageMatchStatus.GENERATED,
+                    error_message=None,
+                ),
+            )
+        else:
+            self._discard_artifacts(canonical_result)
+            self._record(stem, _GENERATED_RESULT)
         return False
+
+    @staticmethod
+    def _discard_artifacts(result: ImageResult) -> None:
+        """Unlink the comparison artifacts of *result*.
+
+        Args:
+            result: The comparison whose on-disk artifacts are dropped.
+        """
+        for path in (result.actual_path, result.baseline_path, result.diff_path):
+            if path is not None:
+                path.unlink(missing_ok=True)
 
     def _current_variant_path(self) -> Path | None:
         """Return the variant path for the snapshot being asserted.

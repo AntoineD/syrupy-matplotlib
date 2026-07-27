@@ -327,6 +327,50 @@ def test_variant_generation_is_idempotent(pytester: pytest.Pytester) -> None:
     assert variant_path(pytester).read_bytes() == variant_bytes
 
 
+def test_pin_run_leaves_no_stray_artifacts(pytester: pytest.Pytester) -> None:
+    """Without a report, a variant-writing run leaves nothing in figure-report.
+
+    The canonical comparison behind the write decision produces
+    actual/expected/diff files; no record references them, so they must not
+    outlive the run.
+    """
+    pytester.makepyfile(test_plots=PLOT_A)
+    pytester.runpytest("--snapshot-update")
+    pytester.makepyfile(test_plots=PLOT_B)
+
+    result = pytester.runpytest("--snapshot-update", PIN)
+
+    result.assert_outcomes(passed=1)
+    assert variant_path(pytester).exists()
+    assert not (pytester.path / "figure-report").exists()
+
+
+def test_pin_report_shows_the_canonical_comparison(
+    pytester: pytest.Pytester,
+) -> None:
+    """With a report, the GENERATED record carries the canonical comparison.
+
+    The images show what the variant answers; the mismatch message is
+    dropped, since a generated baseline is not a failure.
+    """
+    pytester.makepyfile(test_plots=PLOT_A)
+    pytester.runpytest("--snapshot-update")
+    pytester.makepyfile(test_plots=PLOT_B)
+
+    result = pytester.runpytest(
+        "--snapshot-update", PIN, "--snapshot-matplotlib-report=json"
+    )
+
+    result.assert_outcomes(passed=1)
+    (record,) = read_records(pytester).values()
+    assert record["image_status"] == "generated"
+    assert record["rms"] is not None
+    assert record["result_image"] is not None
+    assert record["baseline_image"] is not None
+    assert record["error_message"] is None
+    assert record["baseline_variant"] is None
+
+
 def test_missing_canonical_refuses_to_pin(pytester: pytest.Pytester) -> None:
     """A snapshot cannot exist as a variant only."""
     pytester.makepyfile(test_plots=PLOT_A)
