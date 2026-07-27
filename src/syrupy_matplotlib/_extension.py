@@ -29,6 +29,7 @@ from syrupy.extensions.single_file import SingleFileSnapshotExtension
 from syrupy.extensions.single_file import WriteMode
 
 from ._comparison import run_comparison
+from ._config import VARIANT_TAG_PATTERN
 from ._figures import save_figure_to_bytes
 from ._reporting import ResultRecord
 from ._types import ImageMatchStatus
@@ -330,7 +331,8 @@ class MplFigureExtension(SingleFileSnapshotExtension):
 
         Feeds the warning a canonical re-baseline emits: the plugin cannot
         tell whether those variants still describe their environments, having
-        never rendered under them.
+        never rendered under them. Only directories shaped like a variant
+        tag count — a stray `archive/` must not be named in the warning.
 
         Args:
             snapshot_dir: The `__snapshots__/<module_stem>` directory.
@@ -347,7 +349,7 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         except OSError:  # pragma: no cover
             return
         for entry in entries:
-            if entry.is_dir():
+            if entry.is_dir() and VARIANT_TAG_PATTERN.fullmatch(entry.name):
                 collector.note_variant_dir(entry.name)
 
     def serialize(

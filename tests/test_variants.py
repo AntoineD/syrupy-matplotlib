@@ -439,6 +439,21 @@ def test_update_without_the_flag_leaves_variants_alone(
     assert variant_path(pytester).read_bytes() == variant_bytes
 
 
+def test_stale_warning_ignores_unrelated_directories(
+    pytester: pytest.Pytester,
+) -> None:
+    """Only directories shaped like a variant tag are reported stale."""
+    make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
+    (pytester.path / "__snapshots__" / "test_plots" / "archive").mkdir()
+    pytester.makepyfile(test_plots=PLOT_C)
+
+    result = pytester.runpytest("--snapshot-update")
+
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines([f"*variant baselines for {TAG} may now be stale*"])
+    result.stdout.no_fnmatch_line("*archive*")
+
+
 def test_no_stale_warning_when_nothing_rewritten(pytester: pytest.Pytester) -> None:
     """An idempotent `--snapshot-update` does not cry stale.
 

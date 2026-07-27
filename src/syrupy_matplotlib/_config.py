@@ -18,13 +18,14 @@ _VALID_REPORTS = frozenset({"html", "json", "basic-html"})
 _TRUE_LITERALS = frozenset({"1", "true", "yes", "on"})
 _FALSE_LITERALS = frozenset({"0", "false", "no", "off"})
 
-_VARIANT_TAG_PATTERN = re.compile(r"mpl-\d+\.\d+")
+VARIANT_TAG_PATTERN = re.compile(r"mpl-\d+\.\d+")
 """Shape a derived variant tag must have to be usable as a directory name.
 
 The tag is never user-supplied, so this is an assertion about the
 derivation rather than input validation — but it is what keeps the tag from
 ever becoming `..`, a hidden directory, or anything containing a path
-separator.
+separator. `_extension.py` also uses it to tell variant directories apart
+from unrelated ones sitting in a snapshot directory.
 """
 
 DEFAULT_TOLERANCE = "0"
@@ -78,7 +79,7 @@ def derive_variant_tag() -> str:
     major, _, rest = raw.partition(".")
     minor = rest.partition(".")[0]
     tag = f"mpl-{major}.{minor}"
-    return tag if _VARIANT_TAG_PATTERN.fullmatch(tag) else ""
+    return tag if VARIANT_TAG_PATTERN.fullmatch(tag) else ""
 
 
 def _read_ini(config: pytest.Config, option: str, default: str) -> str:
