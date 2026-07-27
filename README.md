@@ -70,6 +70,8 @@ tests/
     __snapshots__/
         test_plots/
             test_sine_wave.png
+            mpl-3.10/                 # optional, see "Baseline variants"
+                test_sine_wave.png
 ```
 
 ## Coexistence with syrupy's `snapshot`
@@ -207,6 +209,7 @@ Accepted boolean literals: `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0`.
 | `--snapshot-matplotlib-report` | this plugin | Generate an HTML report in `figure-report/`. |
 | `--snapshot-matplotlib-report=html,json` | this plugin | Select report formats (`html`, `json`, `basic-html`). |
 | `--snapshot-matplotlib-report-dir` | this plugin | Where artifacts and reports land (default `figure-report/`). |
+| `--snapshot-matplotlib-pin-variant` | this plugin | With `--snapshot-update`, write [baseline variants](#baseline-variants) for the installed matplotlib instead of rewriting the canonical baselines. |
 
 > **Warning:** Passing `--snapshot-ignore-file-extensions=png` silently
 > disables figure discovery. The plugin emits a warning if this is detected.
@@ -338,6 +341,10 @@ At the end of every run the plugin prints a one-block summary:
 Images: 8 OK, 2 failed
 ```
 
+The line grows a `(variant baselines: mpl-3.10)` suffix when a comparison
+actually read a [baseline variant](#baseline-variants), and a
+`N variant deleted` count when a variant-writing run dropped redundant ones.
+
 With `-v` (or higher), each non-empty bucket is expanded to list its
 records — the pytest node id plus the snapshot stem, one entry per
 assertion:
@@ -356,6 +363,11 @@ Inherited from syrupy: at session end, any `.png` in `__snapshots__/` that
 was not touched during the run fails the suite. Downgrade to a warning with
 `--snapshot-warn-unused`; delete orphans automatically with
 `--snapshot-update`.
+
+Each run accounts only for the baselines it maintains, so a plain
+`--snapshot-update` never reports or deletes [baseline
+variants](#baseline-variants), and a variant-writing run never does that to
+the canonical baselines.
 
 ## Determinism
 
@@ -376,6 +388,78 @@ generated under matplotlib ≤ 3.10 will fail against matplotlib ≥ 3.11.**
 Treat a matplotlib minor bump like a FreeType change: regenerate with
 `--snapshot-update` and eyeball the diff, or insulate the suite with
 `remove_text = true` / a non-zero `snapshot_matplotlib_tolerance`.
+
+When the versions have to coexist — a CI matrix whose oldest Python resolves
+an older matplotlib — give that environment its own baselines instead. See
+the next section.
+
+## Baseline variants
+
+A snapshot can carry an extra baseline for the environment that renders it
+differently, and only for the figures that actually differ there. The typical
+case is a CI matrix: matplotlib 3.11 requires Python >= 3.11, so the Python
+3.10 job resolves matplotlib 3.10 and every comparison fails on the text
+hinting change described above.
+
+```text
+tests/
+    test_plots.py
+    __snapshots__/
+        test_plots/
+            test_sine_wave.png        # canonical baseline
+            mpl-3.10/
+                test_sine_wave.png    # used only under matplotlib 3.10
+```
+
+**There is nothing to configure, and no CI job needs a special command.** The
+directory name is derived from the installed matplotlib
+(`mpl-<major>.<minor>`), so every run already knows which one applies. A
+comparison reads `mpl-<major>.<minor>/<name>.png` when that file exists and
+the canonical baseline otherwise.
+
+The workflow, on the motivating scenario:
+
+```bash
+# 1. Author or re-baseline the canonical images, wherever you work.
+pytest --snapshot-update
+
+# 2. In the old environment (pin matplotlib there — a tox env, a CI job,
+#    `uv pip install 'matplotlib==3.10.*'`), record what differs.
+pytest                                                        # see what fails
+pytest --snapshot-update --snapshot-matplotlib-pin-variant --lf
+
+# 3. Every job, old or new, compares with a plain:
+pytest
+```
+
+`--lf` is ordinary pytest selection; it just narrows step 2 to the figures
+that failed. Commit the variant directories like any other baseline.
+
+What step 2 does, per snapshot: it compares the render against the
+**canonical** baseline at the effective tolerance, and writes a variant only
+when they differ beyond it. A variant that has become redundant is deleted,
+and one that already matches is left untouched, so re-running the command is
+a no-op.
+
+A snapshot cannot exist as a variant only: if the canonical baseline is
+missing, step 2 fails and tells you to run step 1 first.
+
+### Things to know
+
+- **Pinning happens in the environment, never on the command line.** There is
+  no option, environment variable or flag value that names a tag. Installing
+  matplotlib 3.10 is what makes a run write to `mpl-3.10/`.
+- **Patch releases share a tag.** `mpl-3.10` covers 3.10.x; matplotlib does
+  not normally change rendering in a patch release.
+- **One tag at a time**, with no fallback chain — a variant is keyed on the
+  matplotlib version and nothing else.
+- **Re-baselining canonical can outdate the variants.** Only the environment
+  a variant came from can tell, so the plugin warns and leaves them alone;
+  those jobs will fail until you re-run step 2 there.
+- **Generate variants without `-n`.** Reading them is xdist-safe (that is
+  what CI does), but the workers would race on the redundant-variant
+  deletions.
+- **Retiring an environment** is a manual `git rm -r` of its tag directory.
 
 ## xdist support
 

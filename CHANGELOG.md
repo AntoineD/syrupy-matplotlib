@@ -6,6 +6,30 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Baseline variants: a snapshot can carry an extra baseline under
+  `__snapshots__/<module>/mpl-<major>.<minor>/`, used instead of the
+  canonical one when the run happens under that matplotlib. A CI matrix
+  whose oldest Python resolves an older matplotlib no longer fails every
+  comparison over rendering differences it cannot avoid — and no job needs
+  a special pytest command, since the directory name is derived from the
+  installed matplotlib rather than configured.
+
+  `--snapshot-update --snapshot-matplotlib-pin-variant` records them, in
+  the environment whose pixels they describe. It writes a variant only
+  where the render differs from the canonical baseline beyond the
+  tolerance, deletes ones that have become redundant, and refuses to create
+  a snapshot that has no canonical baseline yet. Plain `--snapshot-update`
+  keeps writing canonical baselines and now warns when variants exist that
+  it may have outdated.
+
+- The JSON report records which baseline each comparison used
+  (`baseline_variant`), and the terminal summary names the variants a run
+  read. Report format version is now 3.
+
 ## [0.2.0] - 2026-07-26
 
 ### Added

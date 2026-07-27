@@ -86,9 +86,17 @@ tests/
         test_foo/
             test_bar.png          # baseline image
             test_bar[param].png   # parametrized variant
+            mpl-3.10/             # per-environment baseline variants
+                test_bar.png
 ```
 
 Baseline filename stem = test function name + parametrize ID (brackets preserved on Linux).
+
+### Baseline variants
+
+A comparison prefers `<snapshot dir>/mpl-<major>.<minor>/<name>.png` over the canonical baseline when it exists; the tag is derived from the installed matplotlib and cannot be overridden. `--snapshot-update --snapshot-matplotlib-pin-variant` writes those files (only where the render differs from the canonical baseline beyond the tolerance), plain `--snapshot-update` writes canonical ones.
+
+`MplFigureExtension.discover_snapshots` restricts discovery to the directory the current mode maintains. This is load-bearing: `syrupy.utils.walk_snapshot_dir` uses `rglob`, so without it a canonical update deletes every variant as "unused" and a variant-writing run does the same to the canonical baselines.
 
 ### Comparison
 
