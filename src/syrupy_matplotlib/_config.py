@@ -152,7 +152,8 @@ def resolve_config(config: pytest.Config) -> Config:
         ValueError: If `--snapshot-matplotlib-report` contains an unrecognised
             value, if `snapshot_matplotlib_tolerance` is not a number, if
             `snapshot_matplotlib_savefig_kwargs` is not a JSON object, or if
-            the report directory resolves to the pytest rootpath.
+            the report directory resolves to the pytest rootpath or one of
+            its ancestors.
     """
     report_raw: str = (
         config.getoption("--snapshot-matplotlib-report", default=None) or ""
@@ -231,21 +232,25 @@ def _resolve_report_dir(config: pytest.Config) -> Path:
         The absolute artifact directory.
 
     Raises:
-        ValueError: If the directory resolves to the pytest rootpath itself.
+        ValueError: If the directory resolves to the pytest rootpath or one
+            of its ancestors.
     """
     raw = config.getoption(
         "--snapshot-matplotlib-report-dir", default=None
     ) or _read_ini(config, "snapshot_matplotlib_report_dir", DEFAULT_REPORT_DIR)
     rootpath = Path(config.rootpath)
     report_dir = rootpath / raw
-    if report_dir == rootpath:
-        # The plugin clears its own reports and every `*.png` under this
-        # directory at session start; pointed at the rootpath that would
-        # walk the whole project.
+    # The plugin clears its reports and every `*.png` under this directory at
+    # session start; pointed at the rootpath or an ancestor, that would delete
+    # the `__snapshots__/` baselines — and above the rootpath, files that have
+    # nothing to do with the project. `..` segments and symlinks hide ancestry
+    # from a string comparison, so the guard works on fully resolved paths.
+    if rootpath.resolve().is_relative_to(report_dir.resolve()):
         msg = (
             f"Invalid report directory {raw!r}: it resolves to the pytest "
-            "rootpath. The plugin owns this directory and clears its reports "
-            "and *.png files at session start, so it must be a subdirectory."
+            "rootpath or one of its ancestors. The plugin owns this directory "
+            "and clears its reports and *.png files at session start, so it "
+            "must be a directory of its own."
         )
         raise ValueError(msg)
     return report_dir

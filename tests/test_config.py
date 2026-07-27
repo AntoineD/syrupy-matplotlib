@@ -252,3 +252,34 @@ def test_report_dir_rejects_the_rootpath(pytester: pytest.Pytester) -> None:
     """The plugin clears `*.png` under this directory; the rootpath is off limits."""
     with pytest.raises(pytest.UsageError, match="resolves to the pytest rootpath"):
         pytester.parseconfigure("--snapshot-matplotlib-report-dir=.")
+
+
+@pytest.mark.parametrize("raw", ["..", "../..", "figure-report/../.."])
+def test_report_dir_rejects_relative_ancestors(
+    pytester: pytest.Pytester, raw: str
+) -> None:
+    """`..` segments must not sneak the clearing sweep above the rootpath.
+
+    The old guard compared the unresolved path against the rootpath alone, so
+    `--snapshot-matplotlib-report-dir=..` passed — and the session-start sweep
+    then deleted every `*.png` under the rootpath's parent, including the
+    project's own `__snapshots__/` baselines.
+    """
+    with pytest.raises(pytest.UsageError, match="rootpath or one of its ancestors"):
+        pytester.parseconfigure(f"--snapshot-matplotlib-report-dir={raw}")
+
+
+def test_report_dir_rejects_an_absolute_ancestor(pytester: pytest.Pytester) -> None:
+    """An absolute path above the rootpath is rejected like a relative one."""
+    with pytest.raises(pytest.UsageError, match="rootpath or one of its ancestors"):
+        pytester.parseconfigure(
+            f"--snapshot-matplotlib-report-dir={pytester.path.parent}"
+        )
+
+
+def test_report_dir_accepts_a_sibling_directory(pytester: pytest.Pytester) -> None:
+    """A `..` path that lands *beside* the rootpath, not above it, is fine."""
+    cfg = resolve_config(
+        pytester.parseconfigure("--snapshot-matplotlib-report-dir=../run-figures")
+    )
+    assert cfg.report_dir == pytester.path / ".." / "run-figures"
