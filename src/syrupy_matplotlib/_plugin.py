@@ -99,7 +99,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help=(
             "Generate a report. TYPES is a comma-separated list of "
-            "html (default), json, basic-html."
+            "html (default), json, basic-html. Write "
+            "--snapshot-matplotlib-report=TYPES when a test path follows, "
+            "or the path is read as TYPES."
         ),
     )
     group.addoption(
