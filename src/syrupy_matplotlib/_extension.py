@@ -181,6 +181,12 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         self._mpl_canonical_location = canonical
         if data is not None:
             self._mpl_baseline_variant = self._mpl_variant
+            # A successful variant read must not hide a deleted canonical
+            # baseline from variant-writing mode: `serialize()` would record
+            # the snapshot as generated (or `matches()` pass it on byte
+            # equality) and the snapshot would live on as a variant only.
+            if self._mpl_write_variants and not Path(canonical).exists():
+                self._mpl_canonical_missing = True
             return data
 
         fallback = super().read_snapshot_data_from_location(
@@ -378,15 +384,11 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         # Raising is what stops the write: syrupy queues a snapshot write for
         # any failed assertion in update mode, and only an exception escaping
         # `_assert`'s try block skips it. Refusing here also keeps the variant
-        # subdirectory from being created at all.
+        # subdirectory from being created at all, and runs before the
+        # GENERATED record below, so a refused snapshot is not counted as
+        # created.
         if self._mpl_canonical_missing:
-            msg = (
-                f"canonical baseline missing for {stem!r}; create it first "
-                "with --snapshot-update alone, without "
-                "--snapshot-matplotlib-pin-variant. A snapshot cannot exist "
-                "as a variant only."
-            )
-            raise RuntimeError(msg)
+            raise RuntimeError(_build_variant_only_message(stem))
         fig: Figure = data
         if params.remove_text:
             remove_ticks_and_titles(fig)
@@ -497,13 +499,24 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         Returns:
             `True` when nothing needs to be written, `False` to have syrupy
             write the variant.
+
+        Raises:
+            RuntimeError: If the canonical baseline vanished after it (or the
+                variant) was read — the snapshot must not live on as a
+                variant only.
         """
         self._mpl_last_failure_message = None
         matched = ImageResult(status=ImageMatchStatus.MATCH, tolerance=params.tolerance)
         variant_path = self._current_variant_path()
+        canonical_bytes = self._read_canonical_bytes()
+        # The practical case — variant read fine, canonical deleted — is
+        # caught at read time and refused by `serialize()`; this only fires
+        # when the canonical disappears between that check and this one.
+        if canonical_bytes is None:  # pragma: no cover
+            raise RuntimeError(_build_variant_only_message(stem))
         canonical_result = run_comparison(
             test_bytes=test_bytes,
-            baseline_bytes=self._read_canonical_bytes(),
+            baseline_bytes=canonical_bytes,
             tolerance=params.tolerance,
             diff_dir=self._require_artifact_dir(),
             stem=stem,
@@ -659,6 +672,25 @@ class MplFigureExtension(SingleFileSnapshotExtension):
 
 _GENERATED_RESULT = ImageResult(status=ImageMatchStatus.GENERATED)
 """Synthetic `ImageResult` recorded for update-mode writes; immutable, shared."""
+
+
+def _build_variant_only_message(stem: str) -> str:
+    """Build the message refusing a snapshot with no canonical baseline.
+
+    Args:
+        stem: Filename stem of the current snapshot.
+
+    Returns:
+        The `RuntimeError` message; raising at the call site is what aborts
+        the assertion, and with it any queued snapshot write, when the
+        canonical baseline is missing in variant-writing mode.
+    """
+    return (
+        f"canonical baseline missing for {stem!r}; create it first "
+        "with --snapshot-update alone, without "
+        "--snapshot-matplotlib-pin-variant. A snapshot cannot exist "
+        "as a variant only."
+    )
 
 
 def _coerce_bytes(data: Any) -> bytes:

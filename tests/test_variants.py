@@ -339,6 +339,27 @@ def test_missing_canonical_refuses_to_pin(pytester: pytest.Pytester) -> None:
     assert not variant_path(pytester).parent.exists()
 
 
+def test_missing_canonical_with_existing_variant_refuses(
+    pytester: pytest.Pytester,
+) -> None:
+    """Deleting the canonical does not let its variant live on alone.
+
+    The variant satisfies the baseline read, so without the read-time check
+    this run passed silently (the render is byte-equal to the variant) and
+    left a variant-only snapshot behind — failing every other environment.
+    """
+    make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
+    canonical_path(pytester).unlink()
+    variant_bytes = variant_path(pytester).read_bytes()
+
+    result = pytester.runpytest("--snapshot-update", PIN)
+
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*canonical baseline missing*"])
+    result.stdout.no_fnmatch_line("*created*")
+    assert variant_path(pytester).read_bytes() == variant_bytes
+
+
 def test_sub_tolerance_difference_writes_no_variant(
     pytester: pytest.Pytester,
 ) -> None:
