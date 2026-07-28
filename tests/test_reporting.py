@@ -137,7 +137,7 @@ def test_json_report(tmp_path: Path) -> None:
     out = generate_json_report(collector, tmp_path)
     data = json.loads(out.read_text())
 
-    assert data["metadata"]["version"] == 2
+    assert data["metadata"]["version"] == 3
     assert data["summary"]["total"] == 1
     assert "t::a" in data["results"]
     assert data["results"]["t::a"]["passed"] is True

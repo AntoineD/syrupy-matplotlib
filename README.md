@@ -70,6 +70,10 @@ tests/
     __snapshots__/
         test_plots/
             test_sine_wave.png
+    __snapshots_variants__/                 # optional, see "Baseline variants"
+        mpl-3.10/
+            test_plots/
+                test_sine_wave.png
 ```
 
 ## Coexistence with syrupy's `snapshot`
@@ -207,6 +211,7 @@ Accepted boolean literals: `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0`.
 | `--snapshot-matplotlib-report` | this plugin | Generate an HTML report in `figure-report/`. |
 | `--snapshot-matplotlib-report=html,json` | this plugin | Select report formats (`html`, `json`, `basic-html`). |
 | `--snapshot-matplotlib-report-dir` | this plugin | Where artifacts and reports land (default `figure-report/`). |
+| `--snapshot-matplotlib-pin-variant` | this plugin | With `--snapshot-update`, write [baseline variants](#baseline-variants) for the installed matplotlib instead of rewriting the canonical baselines. |
 
 > **Warning:** Passing `--snapshot-ignore-file-extensions=png` silently
 > disables figure discovery. The plugin emits a warning if this is detected.
@@ -338,6 +343,10 @@ At the end of every run the plugin prints a one-block summary:
 Images: 8 OK, 2 failed
 ```
 
+The line grows a `(variant baselines: mpl-3.10)` suffix when a comparison
+actually read a [baseline variant](#baseline-variants), and a
+`N variant deleted` count when a variant-writing run dropped redundant ones.
+
 With `-v` (or higher), each non-empty bucket is expanded to list its
 records — the pytest node id plus the snapshot stem, one entry per
 assertion:
@@ -356,6 +365,11 @@ Inherited from syrupy: at session end, any `.png` in `__snapshots__/` that
 was not touched during the run fails the suite. Downgrade to a warning with
 `--snapshot-warn-unused`; delete orphans automatically with
 `--snapshot-update`.
+
+Each run accounts only for the baselines it maintains, so a plain
+`--snapshot-update` never reports or deletes [baseline
+variants](#baseline-variants), and a variant-writing run never does that to
+the canonical baselines.
 
 ## Determinism
 
@@ -377,12 +391,112 @@ Treat a matplotlib minor bump like a FreeType change: regenerate with
 `--snapshot-update` and eyeball the diff, or insulate the suite with
 `remove_text = true` / a non-zero `snapshot_matplotlib_tolerance`.
 
+When the versions have to coexist — a CI matrix whose oldest Python resolves
+an older matplotlib — give that environment its own baselines instead. See
+the next section.
+
+## Baseline variants
+
+A snapshot can carry an extra baseline for the environment that renders it
+differently, and only for the figures that actually differ there. The typical
+case is a CI matrix: matplotlib 3.11 requires Python >= 3.11, so the Python
+3.10 job resolves matplotlib 3.10 and every comparison fails on the text
+hinting change described above.
+
+```text
+tests/
+    test_plots.py
+    __snapshots__/
+        test_plots/
+            test_sine_wave.png            # canonical baseline
+    __snapshots_variants__/
+        mpl-3.10/
+            test_plots/
+                test_sine_wave.png        # used only under matplotlib 3.10
+```
+
+**There is nothing to configure, and no CI job needs a special command.** The
+directory name is derived from the installed matplotlib
+(`mpl-<major>.<minor>`), so every run already knows which one applies. A
+comparison reads `__snapshots_variants__/<tag>/<module_stem>/<name>.png` when that
+file exists and the canonical baseline otherwise.
+
+Variants sit in their own directory beside `__snapshots__/`, not inside it,
+because syrupy accounts for everything under `__snapshots__/`: a file the run
+did not use is reported as an unused snapshot — which fails the session even
+when every test passed — and deleted by the next `--snapshot-update`. A variant
+for *another* environment is unused by definition, so any suite that also uses
+syrupy's own `snapshot` fixture would have failed on it and then lost it.
+
+The workflow, on the motivating scenario:
+
+```bash
+# 1. Author or re-baseline the canonical images, wherever you work.
+pytest --snapshot-update
+
+# 2. In the old environment (pin matplotlib there — a tox env, a CI job,
+#    `uv pip install 'matplotlib==3.10.*'`), record what differs.
+pytest                                                        # see what fails
+pytest --snapshot-update --snapshot-matplotlib-pin-variant --lf
+
+# 3. Every job, old or new, compares with a plain:
+pytest
+```
+
+`--lf` is ordinary pytest selection; it just narrows step 2 to the figures
+that failed. Commit the variant directories like any other baseline.
+
+What step 2 does, per snapshot: it compares the render against the
+**canonical** baseline at the effective tolerance, and writes a variant only
+when they differ beyond it. A variant that has become redundant is deleted,
+and one that already matches is left untouched, so re-running the command is
+a no-op.
+
+A snapshot cannot exist as a variant only: if the canonical baseline is
+missing, step 2 fails and tells you to run step 1 first.
+
+### Things to know
+
+- **Pinning happens in the environment, never on the command line.** There is
+  no option, environment variable or flag value that names a tag. Installing
+  matplotlib 3.10 is what makes a run write to `__snapshots_variants__/mpl-3.10/`.
+- **Patch releases share a tag.** `mpl-3.10` covers 3.10.x; matplotlib does
+  not normally change rendering in a patch release.
+- **One tag at a time**, with no fallback chain — a variant is keyed on the
+  matplotlib version and nothing else.
+- **Re-baselining canonical can outdate the variants.** Only the environment
+  a variant came from can tell, so the plugin warns and leaves them alone;
+  those jobs will fail until you re-run step 2 there. The warning is
+  collected in the xdist workers and never reaches the controller, so a
+  `-n` re-baseline stays silent — one more reason to update without xdist
+  (see below). That includes the
+  environment you are sitting in: if it owns a variant for the snapshot you
+  just re-baselined, that variant still shadows the new canonical image and
+  your next plain `pytest` fails until step 2 runs.
+- **Deleting a test leaves its variants behind until step 2 runs.** A
+  comparison run touches nothing, and `--snapshot-update` removes only the
+  orphaned canonical baseline. The next clean step-2 pin run in an environment
+  deletes that environment's variants which no canonical baseline backs, and
+  lists what it removed; other environments' variants wait for their own pin
+  run, or a `git rm`.
+- **Variant generation refuses `-n`.** Reading variants is xdist-safe (that
+  is what CI does), but a pin run deletes redundant variants and reports
+  the deletions, which is per-worker bookkeeping — the flag errors out
+  under pytest-xdist.
+- **An absolute `--snapshot-dirname` turns variants off.** The variant root
+  sits beside the test files, and an absolute snapshot directory detaches
+  the snapshot tree from them — comparisons use the canonical baselines
+  only, and pinning refuses to run.
+- **Retiring an environment** is a manual `git rm -r` of its tag directory
+  under `__snapshots_variants__/`.
+
 ## xdist support
 
 Works with `pytest-xdist` (`-n auto`). Workers write per-worker result
 fragments; the controller merges them at session end before generating
 reports. Syrupy's own unused-snapshot detection is limited under xdist with
-`--snapshot-update` — regenerate baselines without xdist when possible.
+`--snapshot-update`, and the stale-variant warning stays in the workers —
+regenerate baselines without xdist when possible.
 
 Fragment merge and report generation read the worker-written files from a
 single `figure-report/` directory, so xdist support assumes a **shared (or

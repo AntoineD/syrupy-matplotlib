@@ -52,6 +52,12 @@ class ResultRecord:
     error_message: str | None = None
     """Human-readable failure description, or `None`."""
 
+    baseline_variant: str | None = None
+    """Variant tag whose baseline was compared against, or `None` when the
+    canonical baseline was used. Lets a report reader tell the two apart —
+    `baseline_image` points at the copy under the report directory, which
+    looks the same either way."""
+
     @property
     def passed(self) -> bool:
         """Whether this record counts as a passing test outcome.
@@ -67,6 +73,7 @@ class ResultRecord:
         test_name: str,
         result: ImageResult,
         results_root: Path | None = None,
+        baseline_variant: str | None = None,
     ) -> ResultRecord:
         r"""Build a `ResultRecord` from an `ImageResult`.
 
@@ -81,6 +88,8 @@ class ResultRecord:
             result: Immutable result from the comparison engine.
             results_root: Root directory for result artifacts, used to compute
                 relative paths.  Pass `None` to store absolute paths.
+            baseline_variant: Variant tag whose baseline was used, or `None`
+                for the canonical one.
 
         Returns:
             A populated `ResultRecord`.
@@ -105,6 +114,7 @@ class ResultRecord:
             baseline_image=_make_relpath(result.baseline_path),
             diff_image=_make_relpath(result.diff_path),
             error_message=result.error_message,
+            baseline_variant=baseline_variant,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -165,6 +175,25 @@ class ResultCollector:
     results_root: Path | None
     """Root directory for result artifacts, used to compute relative image paths."""
 
+    deleted_variants: list[str]
+    """Record keys whose variant baseline was deleted as no longer needed.
+
+    Keyed like `_records` — pytest node id plus `::<snapshot stem>` — so the
+    terminal summary lists deletions the same way it lists every other bucket.
+
+    Session-local: variant writing refuses to run under xdist, so unlike
+    `_records` this never needs merging across workers.
+    """
+
+    variant_dirs_present: set[str]
+    """Variant tags seen on disk while rewriting canonical baselines.
+
+    Feeds the "your variants may now be stale" warning. Not serialized into
+    the xdist result fragments, so under `-n` the tags stay in the workers
+    and the warning never fires — a documented limitation of re-baselining
+    under xdist.
+    """
+
     _records: dict[str, ResultRecord]
     """Internal mapping from node id to result record."""
 
@@ -175,6 +204,25 @@ class ResultCollector:
         """  # ruff: ignore[missing-blank-line-after-summary]
         self._records = {}
         self.results_root = results_root
+        self.deleted_variants = []
+        self.variant_dirs_present = set()
+
+    def record_deletion(self, test_name: str) -> None:
+        """Note that a variant baseline was deleted because it is redundant.
+
+        Args:
+            test_name: Record key — pytest node id plus `::<snapshot stem>` —
+                of the snapshot whose variant went away.
+        """
+        self.deleted_variants.append(test_name)
+
+    def note_variant_dir(self, tag: str) -> None:
+        """Note that a variant directory for *tag* exists on disk.
+
+        Args:
+            tag: Variant tag named by the directory.
+        """
+        self.variant_dirs_present.add(tag)
 
     def record(self, r: ResultRecord) -> None:
         """Add or replace the record for a test.

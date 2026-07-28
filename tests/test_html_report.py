@@ -134,6 +134,27 @@ def test_report_urlencodes_image_paths(tmp_path: Path) -> None:
     assert 'src="test_plots/test_plot[q#1].png"' not in body
 
 
+def test_reports_label_the_baseline_variant(tmp_path: Path) -> None:
+    """Both HTML reports say which baseline variant a comparison used."""
+    collector = ResultCollector(results_root=tmp_path)
+    collector.record(
+        ResultRecord(
+            test_name="test_v",
+            image_status=ImageMatchStatus.DIFF.value,
+            baseline_image="test_v-expected.png",
+            baseline_variant="mpl-3.10",
+        )
+    )
+    collector.record(_passing_record("test_c"))
+
+    html = generate_html_report(collector, tmp_path).read_text()
+    basic = generate_basic_html_report(collector, tmp_path).read_text()
+
+    assert html.count("mpl-3.10") == 2  # header badge + baseline figcaption
+    assert basic.count("mpl-3.10") == 1
+    assert "canonical" in basic
+
+
 def test_failed_only_html_report_excludes_passes(tmp_path: Path) -> None:
     """`generate_failed_only_html_report` renders only failed records.
 

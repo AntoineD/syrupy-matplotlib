@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError
 from typing import TYPE_CHECKING
 
 import pytest
 
+from syrupy_matplotlib import _config
 from syrupy_matplotlib._config import resolve_config
 
 if TYPE_CHECKING:
@@ -290,3 +292,54 @@ def test_report_dir_accepts_a_sibling_directory(pytester: pytest.Pytester) -> No
         pytester.parseconfigure("--snapshot-matplotlib-report-dir=../run-figures")
     )
     assert cfg.report_dir == pytester.path / ".." / "run-figures"
+
+
+def test_variant_tag_is_empty_without_matplotlib_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A matplotlib without distribution metadata switches variants off.
+
+    Rather than guess a version from `matplotlib.__version__`, which the tag
+    deliberately does not read, an unreadable distribution yields no tag —
+    and no tag means every comparison uses the canonical baseline.
+    """
+
+    def raise_not_found(name: str) -> str:
+        raise PackageNotFoundError(name)
+
+    monkeypatch.setattr(_config, "get_distribution_version", raise_not_found)
+
+    assert _config.derive_variant_tag() == ""
+
+
+def test_pin_without_a_variant_tag_is_an_error(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pinning cannot name a directory when the tag is empty, so it refuses.
+
+    Silently writing canonical baselines instead would make the pin run look
+    like it recorded variants while overwriting the images it was meant to
+    leave alone.
+    """
+    monkeypatch.setattr(_config, "derive_variant_tag", lambda: "")
+
+    with pytest.raises(pytest.UsageError, match="version metadata"):
+        pytester.parseconfigure(
+            "--snapshot-update", "--snapshot-matplotlib-pin-variant"
+        )
+
+
+def test_pin_with_an_absolute_snapshot_dirname_is_an_error(
+    pytester: pytest.Pytester,
+) -> None:
+    """Variants live beside the test files, which an absolute snapshot
+    directory does not have; lookup is off there, so a pin run would record
+    baselines nothing ever reads.
+    """
+    with pytest.raises(pytest.UsageError, match="absolute"):
+        pytester.parseconfigure(
+            "--snapshot-update",
+            "--snapshot-matplotlib-pin-variant",
+            "--snapshot-dirname",
+            str(pytester.path / "abs-snapshots"),
+        )

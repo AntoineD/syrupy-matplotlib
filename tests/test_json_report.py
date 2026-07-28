@@ -37,7 +37,7 @@ def test_json_report_path_and_filename(tmp_path: Path) -> None:
 def test_json_report_metadata_version(tmp_path: Path) -> None:
     out = generate_json_report(_populated_collector(), tmp_path)
     data = json.loads(out.read_text())
-    assert data["metadata"]["version"] == 2
+    assert data["metadata"]["version"] == 3
     assert data["metadata"]["generator"] == "syrupy-matplotlib"
 
 

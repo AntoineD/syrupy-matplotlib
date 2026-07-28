@@ -7,6 +7,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import pytest
+from syrupy.location import PyTestLocation
 
 from syrupy_matplotlib._extension import MplFigureExtension
 from syrupy_matplotlib._extension import _coerce_bytes
@@ -256,6 +257,105 @@ def test_diff_lines_uses_stashed_message() -> None:
     ext = _fresh_extension()
     ext._mpl_last_failure_message = "line1\nline2"
     assert ext.diff_lines(b"", b"") == ["line1", "line2"]
+
+
+def test_get_location_reports_the_canonical_baseline(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even a variant-writing run reports the canonical path as the snapshot.
+
+    Syrupy treats the location as the file the run used and reports every
+    other one under `__snapshots__/` as unused, so naming a variant path here
+    would hand the canonical baseline to syrupy's cleanup.
+    """
+    monkeypatch.setattr(MplFigureExtension, "_mpl_variant", "mpl-9.9")
+    monkeypatch.setattr(MplFigureExtension, "_mpl_write_variants", True)
+
+    location = Path(
+        MplFigureExtension.get_location(
+            test_location=PyTestLocation(request.node), index=0
+        )
+    )
+
+    assert location.parent.name == "test_extension"
+    assert location.parent.parent.name == "__snapshots__"
+    assert location.name == "test_get_location_reports_the_canonical_baseline.png"
+
+
+def test_variant_location_is_inert_without_a_tag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no tag there is no variant path to build, so variants switch off."""
+    monkeypatch.setattr(MplFigureExtension, "_mpl_variant", "")
+    canonical = str(Path("__snapshots__", "test_mod", "test_it.png"))
+
+    assert MplFigureExtension._build_variant_location(canonical) is None
+
+
+def test_variant_location_sits_outside_the_snapshot_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The variant mirrors the module directory under its own root."""
+    monkeypatch.setattr(MplFigureExtension, "_mpl_variant", "mpl-9.9")
+    canonical = Path("tests", "__snapshots__", "test_mod", "test_it.png")
+
+    variant = MplFigureExtension._build_variant_location(str(canonical))
+
+    assert variant == Path(
+        "tests", "__snapshots_variants__", "mpl-9.9", "test_mod", "test_it.png"
+    )
+
+
+def test_variant_location_is_inert_under_an_absolute_snapshot_dirname(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An absolute `--snapshot-dirname` leaves variants off, not crashing.
+
+    The variant root is defined as sitting beside the test files, which a
+    detached snapshot tree does not have; walking `module_dir.parents` by the
+    dirname's depth used to raise `IndexError` on every baseline read.
+    """
+    monkeypatch.setattr(MplFigureExtension, "_mpl_variant", "mpl-9.9")
+    monkeypatch.setattr(MplFigureExtension, "snapshot_dirname", str(tmp_path / "snaps"))
+    canonical = tmp_path / "snaps" / "test_mod" / "test_it.png"
+
+    assert MplFigureExtension._build_variant_location(str(canonical)) is None
+
+
+def test_current_variant_path_without_a_canonical_location() -> None:
+    """No canonical location resolved means the read never went through a variant."""
+    ext = _fresh_extension()
+    ext._mpl_canonical_location = None
+    assert ext._current_variant_path() is None
+
+
+def test_variant_dirs_are_scanned_once_per_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The scan is skipped for a directory already visited this session.
+
+    Every assertion in a module reads the same snapshot directory, so without
+    the guard a module with many snapshots would re-`iterdir()` it once per
+    assertion.
+    """
+    collector = ResultCollector()
+    monkeypatch.setattr(MplFigureExtension, "_mpl_collector", collector)
+    monkeypatch.setattr(MplFigureExtension, "_mpl_scanned_dirs", set())
+    snapshot_dir = tmp_path / "__snapshots__" / "test_mod"
+    snapshot_dir.mkdir(parents=True)
+    variant_root = tmp_path / "__snapshots_variants__"
+
+    def add_variant(tag: str) -> None:
+        module_dir = variant_root / tag / "test_mod"
+        module_dir.mkdir(parents=True)
+        (module_dir / "test_it.png").write_bytes(b"x")
+
+    add_variant("mpl-9.9")
+    MplFigureExtension._note_variant_dirs(snapshot_dir)
+    add_variant("mpl-8.8")
+    MplFigureExtension._note_variant_dirs(snapshot_dir)
+
+    assert collector.variant_dirs_present == {"mpl-9.9"}
 
 
 def test_coerce_bytes_roundtrip() -> None:

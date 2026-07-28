@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
     from ._reporting import ResultCollector
 
-_REPORT_VERSION = 2
+_REPORT_VERSION = 3
 
 
 def generate_json_report(collector: ResultCollector, results_dir: Path) -> Path:
@@ -19,7 +19,7 @@ def generate_json_report(collector: ResultCollector, results_dir: Path) -> Path:
     Output structure::
 
         {
-            "metadata": {"version": 2, "generator": "syrupy-matplotlib"},
+            "metadata": {"version": 3, "generator": "syrupy-matplotlib"},
             "summary": {"total": N, "passed": N, "failed": N},
             "results": {
                 "<nodeid>::<snapshot stem>": {
@@ -31,7 +31,8 @@ def generate_json_report(collector: ResultCollector, results_dir: Path) -> Path:
                     "result_image": "...",
                     "baseline_image": "...",
                     "diff_image": null,
-                    "error_message": null
+                    "error_message": null,
+                    "baseline_variant": "mpl-3.10"
                 },
                 ...
             }
