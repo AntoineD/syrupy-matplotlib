@@ -509,9 +509,11 @@ class MplFigureExtension(SingleFileSnapshotExtension):
                 variant only.
         """
         self._mpl_last_failure_message = None
-        # Every record below describes a comparison against the canonical
-        # baseline; the variant read at baseline-read time only feeds the
-        # byte-equality shortcut.
+        # Records below describe the comparison against the canonical
+        # baseline — except the up-to-date-variant branch, which records the
+        # match against the variant that a comparison run would. The variant
+        # bytes syrupy read as the snapshot are never consulted here (the
+        # byte-equality check re-reads the file).
         self._mpl_baseline_variant = None
         variant_path = self._current_variant_path()
         if variant_path is None:  # pragma: no cover
@@ -562,8 +564,13 @@ class MplFigureExtension(SingleFileSnapshotExtension):
 
         if variant_path.exists() and variant_path.read_bytes() == test_bytes:
             # The mismatch artifacts describe a difference the existing
-            # variant already answers; no record references them.
+            # variant already answers; no record references them. The render
+            # matches its variant, not the canonical baseline it just
+            # differed from, and the record says so — the same image-less
+            # MATCH a comparison run's bytes-equality fast path records for
+            # this on-disk state.
             self._discard_artifacts(canonical_result)
+            self._mpl_baseline_variant = self._mpl_variant
             self._record(
                 stem,
                 ImageResult(status=ImageMatchStatus.MATCH, tolerance=params.tolerance),

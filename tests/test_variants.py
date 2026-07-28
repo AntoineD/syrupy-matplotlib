@@ -578,16 +578,27 @@ def test_matching_canonical_writes_nothing(pytester: pytest.Pytester) -> None:
 
 
 def test_variant_generation_is_idempotent(pytester: pytest.Pytester) -> None:
-    """Re-pinning an unchanged variant reports OK, not a creation."""
+    """Re-pinning an unchanged variant reports a match, not a creation.
+
+    The record is the one a comparison run would produce — a match against
+    the variant baseline — so the summary and the report name the variant
+    instead of claiming the render matches the canonical baseline it just
+    differed from.
+    """
     make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
     variant_bytes = variant_path(pytester).read_bytes()
 
-    result = pytester.runpytest("--snapshot-update", PIN)
+    result = pytester.runpytest(
+        "--snapshot-update", PIN, "--snapshot-matplotlib-report=json"
+    )
 
     result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["Images: 1 OK, 0 failed*"])
+    result.stdout.fnmatch_lines([f"Images: 1 OK, 0 failed (variant baselines: {TAG})"])
     result.stdout.no_fnmatch_line("*created*")
     assert variant_path(pytester).read_bytes() == variant_bytes
+    (record,) = read_records(pytester).values()
+    assert record["image_status"] == "match"
+    assert record["baseline_variant"] == TAG
 
 
 def test_pin_run_leaves_no_stray_artifacts(pytester: pytest.Pytester) -> None:
