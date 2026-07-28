@@ -86,7 +86,9 @@ tests/
         test_foo/
             test_bar.png          # baseline image
             test_bar[param].png   # parametrized variant
-            mpl-3.10/             # per-environment baseline variants
+    __mpl_variants__/             # per-environment baseline variants
+        mpl-3.10/
+            test_foo/
                 test_bar.png
 ```
 
@@ -94,9 +96,17 @@ Baseline filename stem = test function name + parametrize ID (brackets preserved
 
 ### Baseline variants
 
-A comparison prefers `<snapshot dir>/mpl-<major>.<minor>/<name>.png` over the canonical baseline when it exists; the tag is derived from the installed matplotlib and cannot be overridden. `--snapshot-update --snapshot-matplotlib-pin-variant` writes those files (only where the render differs from the canonical baseline beyond the tolerance), plain `--snapshot-update` writes canonical ones.
+A comparison prefers `__mpl_variants__/<tag>/<module_stem>/<name>.png` over the canonical baseline when it exists; the tag is derived from the installed matplotlib and cannot be overridden. `--snapshot-update --snapshot-matplotlib-pin-variant` writes those files (only where the render differs from the canonical baseline beyond the tolerance), plain `--snapshot-update` writes canonical ones.
 
-`MplFigureExtension.discover_snapshots` restricts discovery to the directory the current mode maintains. This is load-bearing: `syrupy.utils.walk_snapshot_dir` uses `rglob`, so without it a canonical update deletes every variant as "unused" and a variant-writing run does the same to the canonical baselines.
+Variants are handled *around* syrupy, not through it, and this is load-bearing. Syrupy counts the location `get_location` returns as the snapshot the run used, then reports every other file under `__snapshots__/` as unused — which fails the session — and deletes it while updating. Its default (amber) extension discovers that whole tree, so one plain `snapshot` fixture anywhere in the directory arms the sweep. Hence:
+
+- `get_location` reports the **canonical** path in every mode, so no run can lose a baseline to that sweep;
+- `read_snapshot_data_from_location` substitutes the variant's bytes;
+- `_decide_variant_write` writes the variant file itself and returns `True` (a `False` return would make syrupy write, at the canonical path, and report every pinned figure as a failure);
+- `VARIANT_ROOT_DIRNAME` (`_config.py`) keeps variants out of `__snapshots__/` entirely, since a variant for another environment is unused there by definition;
+- `_plugin._prune_orphaned_variants` replaces syrupy's unused-snapshot cleanup for variants, deleting those with no canonical baseline left. It runs only on a clean pin run — a failed one may be failing *because* a canonical baseline went missing.
+
+`MplFigureExtension.discover_snapshots` drops anything below the module directory, which is where variants used to live.
 
 ### Comparison
 

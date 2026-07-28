@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import warnings
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,6 +29,7 @@ from syrupy.extensions.single_file import SingleFileSnapshotExtension
 from syrupy.extensions.single_file import WriteMode
 
 from ._comparison import run_comparison
+from ._config import VARIANT_ROOT_DIRNAME
 from ._config import VARIANT_TAG_PATTERN
 from ._figures import save_figure_to_bytes
 from ._reporting import ResultRecord
@@ -39,7 +39,6 @@ from ._types import is_passing
 
 if TYPE_CHECKING:
     from syrupy.location import PyTestLocation
-    from syrupy.types import SnapshotIndex
 
     from ._params import SnapshotParams
     from ._reporting import ResultCollector
@@ -47,6 +46,18 @@ if TYPE_CHECKING:
 
 class MplFigureExtension(SingleFileSnapshotExtension):
     """One `.png` per snapshot under `__snapshots__/<module_stem>/`.
+
+    Per-environment variants of those baselines live under
+    `__mpl_variants__/<tag>/<module_stem>/`, and this class handles them around
+    syrupy rather than through it: `get_location` is left reporting the
+    canonical path in every mode, `read_snapshot_data_from_location` swaps in
+    the variant's bytes, and `_decide_variant_write` writes the variant file
+    itself. Syrupy counts the location it hands out as the snapshot the run
+    used and reports every other file under `__snapshots__/` as unused — which
+    fails the session — then deletes it on the next `--snapshot-update`. Any
+    plain `snapshot` fixture in the directory arms that sweep, since syrupy's
+    default extension discovers the whole tree, so naming anything but the
+    canonical baseline surrendered the baseline itself.
 
     Per-assertion state is stamped by `MplSnapshotAssertion._assert` before
     `matches()` runs. Reset between calls so nothing leaks.
@@ -110,102 +121,71 @@ class MplFigureExtension(SingleFileSnapshotExtension):
     canonical baseline was used."""
 
     _mpl_canonical_missing: bool = False
-    """`True` when variant-writing mode found no canonical baseline to
-    compare against; makes `serialize()` refuse the snapshot."""
+    """`True` when the canonical baseline behind the snapshot being read is
+    missing — variant-writing mode has nothing to compare against, and a
+    comparison run is about to pass off a variant nothing can regenerate.
+    Makes `serialize()` refuse the snapshot."""
 
     _mpl_scanned_dirs: set[str] = set()  # ruff: ignore[mutable-class-default]
     """Snapshot directories already scanned for variant subdirectories.
     Class-level so the scan happens once per directory, not once per
     snapshot; cleared by `pytest_unconfigure`."""
 
-    # ── Baseline location: variant first, canonical as fallback ─────────────
-
-    @classmethod
-    def get_location(
-        cls, *, test_location: PyTestLocation, index: SnapshotIndex
-    ) -> str:
-        """Return the path of the baseline this assertion reads or writes.
-
-        Four cases, in order:
-
-        - no tag (matplotlib metadata unreadable): the canonical path;
-        - variant-writing mode: the variant path, always — this is what makes
-          `--snapshot-update` write there and leave canonical alone, with no
-          special-casing in the write path itself;
-        - plain `--snapshot-update`: the canonical path, even when a variant
-          exists, so a re-baseline never lands in a variant directory;
-        - comparison: the variant path when that file exists, else canonical.
-
-        Args:
-            test_location: Syrupy's wrapper around the current pytest node.
-            index: Snapshot index within the test.
-
-        Returns:
-            Absolute path to the baseline file, as a string.
-        """
-        canonical = super().get_location(test_location=test_location, index=index)
-        variant = cls._build_variant_location(canonical)
-        if variant is None:
-            return canonical
-        if cls._mpl_write_variants:
-            return str(variant)
-        if cls._mpl_update_snapshots:
-            return canonical
-        return str(variant) if variant.exists() else canonical
+    # ── Baseline location: canonical is the snapshot, variants answer for it ──
 
     def read_snapshot_data_from_location(
         self, *, snapshot_location: str, snapshot_name: str, session_id: str
     ) -> Any:
-        """Read the baseline, falling back from the variant to the canonical.
+        """Read the baseline, preferring the variant that answers for it.
 
-        The fallback applies in update mode too, and has to: syrupy skips
-        `matches()` entirely when the read comes back `None` and writes the
-        snapshot straight to disk, which would make every variant-writing run
-        create a variant unconditionally instead of only where the canonical
-        baseline really differs.
+        A plain `--snapshot-update` is the exception: it reads and rewrites the
+        canonical baseline even where a variant exists, so a re-baseline never
+        consults, and never lands in, a variant file.
 
         Args:
-            snapshot_location: Path chosen by `get_location`.
+            snapshot_location: Canonical path from `get_location`.
             snapshot_name: Snapshot stem (unused by the single-file base).
             session_id: Syrupy session id.
 
         Returns:
-            The baseline bytes, or `None` when neither baseline exists.
+            The variant bytes when one answers for this environment, else the
+            canonical bytes, else `None`.
         """
-        self._mpl_canonical_location = None
+        self._mpl_canonical_location = snapshot_location
         self._mpl_baseline_variant = None
         self._mpl_canonical_missing = False
         self._mpl_snapshot_dir = str(Path(snapshot_location).parent)
+
+        canonical_update = self._mpl_update_snapshots and not self._mpl_write_variants
+        variant = self._build_variant_location(snapshot_location)
+        if variant is not None and not canonical_update and variant.exists():
+            data = super().read_snapshot_data_from_location(
+                snapshot_location=str(variant),
+                snapshot_name=snapshot_name,
+                session_id=session_id,
+            )
+            if data is not None:  # pragma: no branch
+                self._mpl_baseline_variant = self._mpl_variant
+                # A successful variant read must not hide a deleted canonical
+                # baseline. A comparison run would pass off the variant
+                # silently, and a variant-writing run would keep it (or pass it
+                # on byte equality), leaving a baseline that only shadows and
+                # that nothing can regenerate: pinning a variant compares it
+                # against a canonical baseline.
+                self._mpl_canonical_missing = not Path(snapshot_location).exists()
+                return data
 
         data = super().read_snapshot_data_from_location(
             snapshot_location=snapshot_location,
             snapshot_name=snapshot_name,
             session_id=session_id,
         )
-        canonical = self._resolve_canonical_location(snapshot_location)
-        if canonical is None:
-            # Already the canonical location; nothing to fall back to.
-            return data
-
-        self._mpl_canonical_location = canonical
-        if data is not None:
-            self._mpl_baseline_variant = self._mpl_variant
-            # A successful variant read must not hide a deleted canonical
-            # baseline from variant-writing mode: `serialize()` would record
-            # the snapshot as generated (or `matches()` pass it on byte
-            # equality) and the snapshot would live on as a variant only.
-            if self._mpl_write_variants and not Path(canonical).exists():
-                self._mpl_canonical_missing = True
-            return data
-
-        fallback = super().read_snapshot_data_from_location(
-            snapshot_location=canonical,
-            snapshot_name=snapshot_name,
-            session_id=session_id,
-        )
-        if fallback is None and self._mpl_write_variants:
+        # Nothing to pin against, and nothing syrupy may write in this mode:
+        # `serialize()` refuses the snapshot rather than let a variant-writing
+        # run create the canonical baseline it is supposed to compare with.
+        if data is None and self._mpl_write_variants:
             self._mpl_canonical_missing = True
-        return fallback
+        return data
 
     def discover_snapshots(
         self,
@@ -215,75 +195,68 @@ class MplFigureExtension(SingleFileSnapshotExtension):
     ) -> SnapshotCollections:
         """Return the snapshots syrupy may report as unused, and only those.
 
-        `syrupy.utils.walk_snapshot_dir` recurses (`rglob`), so the base
-        implementation returns variant files alongside canonical ones. Left
-        alone, a plain `--snapshot-update` deletes every variant as "unused",
-        and a variant-writing run does the same to the canonical baselines.
-        Restricting discovery to the directory this run actually maintains
-        closes both.
-
-        Comparison runs additionally drop canonical baselines that a variant
-        shadows: the run reads the variant, so the canonical never enters
-        syrupy's `used` set and would be reported unused — which fails the
-        session, since unused snapshots set a non-zero exit status.
+        Syrupy's own discovery, minus anything sitting below the module
+        directory: a legacy nested tag directory (variants lived under
+        `__snapshots__/<module>/` before) or whatever else a user parked there
+        is not this run's to report. Variants need no filtering — they live
+        outside the tree syrupy walks — and no discovery either, since this
+        plugin writes and prunes them itself.
 
         Args:
             test_location: Syrupy's wrapper around the current pytest node.
             ignore_extensions: Extensions syrupy was told to skip.
 
         Returns:
-            The filtered snapshot collections.
+            The snapshot collections this run maintains.
         """
         discovered = super().discover_snapshots(
             test_location=test_location, ignore_extensions=ignore_extensions
         )
-        canonical_dir = Path(self.dirname(test_location=test_location))
-        active_dir = canonical_dir
-        if self._mpl_write_variants:
-            active_dir = canonical_dir / self._mpl_variant
+        module_dir = Path(self.dirname(test_location=test_location))
 
         filtered = SnapshotCollections()
         for collection in discovered:
-            location = Path(collection.location)
-            if location.parent != active_dir:
-                continue
-            if not self._mpl_update_snapshots and self._is_shadowed(location):
+            if Path(collection.location).parent != module_dir:
                 continue
             filtered.add(collection)
         return filtered
 
     @classmethod
-    def write_snapshot(cls, *, snapshot_location: str, snapshots: list[Any]) -> None:
-        """Write baselines, muting syrupy's layout warning for variant paths.
+    def _build_variant_root(cls, module_dir: Path) -> Path:
+        """Return the directory tree holding every variant beside the tests.
 
-        `AbstractSyrupyExtension.write_snapshot` warns when it cannot relate
-        the snapshot location to the test location, and
-        `PyTestLocation._matches_snapshot_basename` only accepts a file
-        sitting directly in `__snapshots__/<module_stem>/`. Every variant is
-        one directory deeper by design, so the warning would fire once per
-        written file on the very command the docs tell users to run.
-
-        Overriding a method syrupy documents as final, and matching on its
-        warning text, are both covered by the `syrupy>=5.1,<6` pin.
+        `VARIANT_ROOT_DIRNAME` sits next to the snapshot directory rather than
+        inside it, because everything under `__snapshots__/` belongs to
+        syrupy's own bookkeeping: its default extension discovers that whole
+        tree, and a file the run did not use is reported as an unused snapshot
+        — which fails the session — and deleted by the next
+        `--snapshot-update`. A variant describing another environment is
+        unused by definition, so nesting it there handed other environments'
+        baselines to the first `--snapshot-update` anyone ran.
 
         Args:
-            snapshot_location: Path the snapshots are written to.
-            snapshots: Syrupy's `(data, test_location, index)` tuples.
+            module_dir: The `<snapshot dir>/<module_stem>` directory.
+
+        Returns:
+            The variant root beside the snapshot directory.
         """
-        if not cls._mpl_write_variants:
-            super().write_snapshot(
-                snapshot_location=snapshot_location, snapshots=snapshots
-            )
-            return
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message=r"\nCan not relate snapshot location",
-                category=UserWarning,
-            )
-            super().write_snapshot(
-                snapshot_location=snapshot_location, snapshots=snapshots
-            )
+        # `snapshot_dirname` is syrupy's `--snapshot-dirname`, and may itself
+        # be a nested path; its depth is what makes the test file's own
+        # directory reachable from the module directory.
+        depth = len(Path(cls.snapshot_dirname).parts)
+        return module_dir.parents[depth] / VARIANT_ROOT_DIRNAME
+
+    @classmethod
+    def _build_variant_dir(cls, module_dir: Path) -> Path:
+        """Return the directory holding this environment's variants for a module.
+
+        Args:
+            module_dir: The `<snapshot dir>/<module_stem>` directory.
+
+        Returns:
+            `<variant root>/<tag>/<module_stem>`.
+        """
+        return cls._build_variant_root(module_dir) / cls._mpl_variant / module_dir.name
 
     @classmethod
     def _build_variant_location(cls, canonical: str) -> Path | None:
@@ -293,60 +266,31 @@ class MplFigureExtension(SingleFileSnapshotExtension):
             canonical: Canonical baseline path.
 
         Returns:
-            The path under the tag subdirectory, or `None` when no variant
-            tag is active.
+            The path under the tag directory, or `None` when no variant tag
+            is active.
         """
         if not cls._mpl_variant:
             return None
         path = Path(canonical)
-        return path.parent / cls._mpl_variant / path.name
-
-    @classmethod
-    def _resolve_canonical_location(cls, snapshot_location: str) -> str | None:
-        """Return the canonical path for a variant location.
-
-        Args:
-            snapshot_location: Path `get_location` produced.
-
-        Returns:
-            The canonical path when *snapshot_location* is inside the active
-            variant directory, otherwise `None`.
-        """
-        if not cls._mpl_variant:
-            return None
-        path = Path(snapshot_location)
-        if path.parent.name != cls._mpl_variant:
-            return None
-        return str(path.parent.parent / path.name)
-
-    @classmethod
-    def _is_shadowed(cls, canonical: Path) -> bool:
-        """Return whether a variant baseline overrides *canonical*.
-
-        Args:
-            canonical: Canonical baseline path.
-
-        Returns:
-            `True` when the matching variant file exists on disk.
-        """
-        variant = cls._build_variant_location(str(canonical))
-        return variant is not None and variant.exists()
+        return cls._build_variant_dir(path.parent) / path.name
 
     @classmethod
     def _note_variant_dirs(cls, snapshot_dir: Path) -> None:
-        """Record the variant directories sitting next to canonical baselines.
+        """Record the variant directories holding baselines for this module.
 
         Feeds the warning a canonical re-baseline emits: the plugin cannot
         tell whether those variants still describe their environments, having
         never rendered under them.
 
         A directory only counts when it is shaped like a variant tag *and*
-        still holds a baseline — a stray `archive/` must not be named in the
-        warning, and neither must the empty `mpl-<x>.<y>/` a pin run leaves
-        behind when it deletes the last variant it contained.
+        holds a baseline for this module — a stray `archive/` must not be
+        named in the warning, neither must a tag directory that only carries
+        other modules' variants, and neither must the empty
+        `<tag>/<module>/` a pin run leaves behind when it deletes the last
+        variant it contained.
 
         Args:
-            snapshot_dir: The `__snapshots__/<module_stem>` directory.
+            snapshot_dir: The `<snapshot dir>/<module_stem>` directory.
         """
         collector = cls._mpl_collector
         if collector is None:  # pragma: no cover
@@ -356,14 +300,17 @@ class MplFigureExtension(SingleFileSnapshotExtension):
             return
         cls._mpl_scanned_dirs.add(key)
         try:
-            entries = list(snapshot_dir.iterdir())
-        except OSError:  # pragma: no cover
+            entries = list(cls._build_variant_root(snapshot_dir).iterdir())
+        except OSError:
+            # No variant root at all: the common case for a suite that never
+            # pinned anything.
             return
+        module = snapshot_dir.name
         for entry in entries:
             if (
                 entry.is_dir()
                 and VARIANT_TAG_PATTERN.fullmatch(entry.name)
-                and any(entry.glob(f"*.{cls.file_extension}"))
+                and any((entry / module).glob(f"*.{cls.file_extension}"))
             ):
                 collector.note_variant_dir(entry.name)
 
@@ -392,8 +339,9 @@ class MplFigureExtension(SingleFileSnapshotExtension):
 
         Raises:
             TypeError: If *data* is not a `matplotlib.figure.Figure`.
-            RuntimeError: If variant-writing mode found no canonical baseline
-                to compare against.
+            RuntimeError: If the snapshot has no canonical baseline — nothing
+                for variant-writing mode to compare against, and a variant a
+                comparison run must not pass off silently.
         """
         if not isinstance(data, Figure):
             msg = f"snapshot comparison expected a Figure, got {type(data).__name__}."
@@ -404,9 +352,13 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         # `_assert`'s try block skips it. Refusing here also keeps the variant
         # subdirectory from being created at all, and runs before the
         # GENERATED record below, so a refused snapshot is not counted as
-        # created.
+        # created. `serialize()` is the hook that carries it in a comparison
+        # run too: an exception from `matches()` is swallowed by syrupy's
+        # `_assert`, which would turn the refusal into a pixel mismatch.
         if self._mpl_canonical_missing:
-            raise RuntimeError(_build_variant_only_message(stem))
+            raise RuntimeError(
+                _build_variant_only_message(stem, self._current_variant_path())
+            )
         fig: Figure = data
         if params.remove_text:
             remove_ticks_and_titles(fig)
@@ -513,9 +465,11 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         sub-tolerance difference is not worth a variant file, and a variant
         that is byte-equal to what was just rendered is not worth rewriting.
 
-        Returning `False` is how the variant gets written — syrupy queues the
-        write for any non-matching assertion in update mode, at the path
-        `get_location` returned, which is the variant path in this mode.
+        The variant file is written here rather than by syrupy, and the return
+        value is always `True`. Syrupy writes the location `get_location`
+        reports, which is the canonical baseline this run must not touch, and
+        it can only be told to write by failing the assertion — which would
+        also report the pin run's every write as a test failure.
 
         Comparison artifacts survive only on the record that references
         them: the report-mode ``GENERATED`` record carries the canonical
@@ -528,8 +482,7 @@ class MplFigureExtension(SingleFileSnapshotExtension):
             test_bytes: Freshly rendered PNG bytes.
 
         Returns:
-            `True` when nothing needs to be written, `False` to have syrupy
-            write the variant.
+            `True`, always: the assertion passes and syrupy queues no write.
 
         Raises:
             RuntimeError: If the canonical baseline vanished after it (or the
@@ -538,16 +491,20 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         """
         self._mpl_last_failure_message = None
         # Every record below describes a comparison against the canonical
-        # baseline; the variant read by `get_location` only feeds the
+        # baseline; the variant read at baseline-read time only feeds the
         # byte-equality shortcut.
         self._mpl_baseline_variant = None
         variant_path = self._current_variant_path()
+        if variant_path is None:  # pragma: no cover
+            # No tag to pin to, which `resolve_config` refuses up front.
+            msg = "variant-writing mode reached without a variant tag."
+            raise RuntimeError(msg)
         canonical_bytes = self._read_canonical_bytes()
         # The practical case — variant read fine, canonical deleted — is
         # caught at read time and refused by `serialize()`; this only fires
         # when the canonical disappears between that check and this one.
         if canonical_bytes is None:  # pragma: no cover
-            raise RuntimeError(_build_variant_only_message(stem))
+            raise RuntimeError(_build_variant_only_message(stem, variant_path))
         canonical_result = run_comparison(
             test_bytes=test_bytes,
             baseline_bytes=canonical_bytes,
@@ -561,14 +518,20 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         if is_passing(canonical_result.status):
             # This environment renders what the canonical baseline already
             # holds, so any variant it used to need is now noise.
-            if variant_path is not None and variant_path.exists():
+            if variant_path.exists():
                 variant_path.unlink()
                 # An emptied tag directory is not "an environment with
                 # variants": left behind it would keep feeding the
                 # stale-variant warning after the last variant is gone, and
                 # a pin run that writes nothing never creates one at all.
+                # `<tag>/<module>/` goes first, then the tag directory, then
+                # the variant root — each only when the one below it was the
+                # last thing it held, since the suppressed `OSError` from a
+                # non-empty directory skips the rest.
                 with contextlib.suppress(OSError):
                     variant_path.parent.rmdir()
+                    variant_path.parent.parent.rmdir()
+                    variant_path.parent.parent.parent.rmdir()
                 if (
                     self._mpl_collector is not None and self._mpl_nodeid is not None
                 ):  # pragma: no branch
@@ -576,11 +539,7 @@ class MplFigureExtension(SingleFileSnapshotExtension):
             self._record(stem, canonical_result)
             return True
 
-        if (
-            variant_path is not None
-            and variant_path.exists()
-            and variant_path.read_bytes() == test_bytes
-        ):
+        if variant_path.exists() and variant_path.read_bytes() == test_bytes:
             # The mismatch artifacts describe a difference the existing
             # variant already answers; no record references them.
             self._discard_artifacts(canonical_result)
@@ -589,6 +548,11 @@ class MplFigureExtension(SingleFileSnapshotExtension):
                 ImageResult(status=ImageMatchStatus.MATCH, tolerance=params.tolerance),
             )
             return True
+
+        # This environment needs a variant, and it is this plugin that writes
+        # it: `serialize()` already recorded the write as GENERATED.
+        variant_path.parent.mkdir(parents=True, exist_ok=True)
+        variant_path.write_bytes(test_bytes)
 
         if self._mpl_keep_match_artifacts:
             # A report is coming: keep the canonical comparison on the
@@ -605,7 +569,7 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         else:
             self._discard_artifacts(canonical_result)
             self._record(stem, _GENERATED_RESULT)
-        return False
+        return True
 
     @staticmethod
     def _discard_artifacts(result: ImageResult) -> None:
@@ -762,22 +726,28 @@ _GENERATED_RESULT = ImageResult(status=ImageMatchStatus.GENERATED)
 """Synthetic `ImageResult` recorded for update-mode writes; immutable, shared."""
 
 
-def _build_variant_only_message(stem: str) -> str:
+def _build_variant_only_message(stem: str, variant_location: Path | None) -> str:
     """Build the message refusing a snapshot with no canonical baseline.
 
     Args:
         stem: Filename stem of the current snapshot.
+        variant_location: Path of the variant baseline shadowing the missing
+            canonical one, or `None` when no variant exists either.
 
     Returns:
         The `RuntimeError` message; raising at the call site is what aborts
         the assertion, and with it any queued snapshot write, when the
-        canonical baseline is missing in variant-writing mode.
+        canonical baseline is missing.
     """
+    shadowed = ""
+    if variant_location is not None and variant_location.exists():
+        shadowed = f" A variant baseline shadows it at {variant_location}."
     return (
-        f"canonical baseline missing for {stem!r}; create it first "
-        "with --snapshot-update alone, without "
-        "--snapshot-matplotlib-pin-variant. A snapshot cannot exist "
-        "as a variant only."
+        f"canonical baseline missing for {stem!r}.{shadowed} A snapshot cannot "
+        "exist as a variant only: nothing regenerates a variant except a pin "
+        "run comparing it against a canonical baseline. Create the canonical "
+        "baseline with --snapshot-update alone, without "
+        "--snapshot-matplotlib-pin-variant, or delete the variant."
     )
 
 

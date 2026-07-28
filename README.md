@@ -70,7 +70,9 @@ tests/
     __snapshots__/
         test_plots/
             test_sine_wave.png
-            mpl-3.10/                 # optional, see "Baseline variants"
+    __mpl_variants__/                 # optional, see "Baseline variants"
+        mpl-3.10/
+            test_plots/
                 test_sine_wave.png
 ```
 
@@ -406,16 +408,25 @@ tests/
     test_plots.py
     __snapshots__/
         test_plots/
-            test_sine_wave.png        # canonical baseline
-            mpl-3.10/
-                test_sine_wave.png    # used only under matplotlib 3.10
+            test_sine_wave.png            # canonical baseline
+    __mpl_variants__/
+        mpl-3.10/
+            test_plots/
+                test_sine_wave.png        # used only under matplotlib 3.10
 ```
 
 **There is nothing to configure, and no CI job needs a special command.** The
 directory name is derived from the installed matplotlib
 (`mpl-<major>.<minor>`), so every run already knows which one applies. A
-comparison reads `mpl-<major>.<minor>/<name>.png` when that file exists and
-the canonical baseline otherwise.
+comparison reads `__mpl_variants__/<tag>/<module_stem>/<name>.png` when that
+file exists and the canonical baseline otherwise.
+
+Variants sit in their own directory beside `__snapshots__/`, not inside it,
+because syrupy accounts for everything under `__snapshots__/`: a file the run
+did not use is reported as an unused snapshot — which fails the session even
+when every test passed — and deleted by the next `--snapshot-update`. A variant
+for *another* environment is unused by definition, so any suite that also uses
+syrupy's own `snapshot` fixture would have failed on it and then lost it.
 
 The workflow, on the motivating scenario:
 
@@ -448,7 +459,7 @@ missing, step 2 fails and tells you to run step 1 first.
 
 - **Pinning happens in the environment, never on the command line.** There is
   no option, environment variable or flag value that names a tag. Installing
-  matplotlib 3.10 is what makes a run write to `mpl-3.10/`.
+  matplotlib 3.10 is what makes a run write to `__mpl_variants__/mpl-3.10/`.
 - **Patch releases share a tag.** `mpl-3.10` covers 3.10.x; matplotlib does
   not normally change rendering in a patch release.
 - **One tag at a time**, with no fallback chain — a variant is keyed on the
@@ -462,16 +473,18 @@ missing, step 2 fails and tells you to run step 1 first.
   environment you are sitting in: if it owns a variant for the snapshot you
   just re-baselined, that variant still shadows the new canonical image and
   your next plain `pytest` fails until step 2 runs.
-- **Deleting a test leaves its variants behind.** `--snapshot-update` removes
-  the orphaned canonical baseline, but each run only accounts for the
-  baselines it maintains, so no comparison run reports the orphaned variants.
-  A step-2 pin run in an environment does clear its own; otherwise remove
-  them by hand.
+- **Deleting a test leaves its variants behind until step 2 runs.** A
+  comparison run touches nothing, and `--snapshot-update` removes only the
+  orphaned canonical baseline. The next clean step-2 pin run in an environment
+  deletes that environment's variants which no canonical baseline backs, and
+  lists what it removed; other environments' variants wait for their own pin
+  run, or a `git rm`.
 - **Variant generation refuses `-n`.** Reading variants is xdist-safe (that
   is what CI does), but a pin run deletes redundant variants and reports
   the deletions, which is per-worker bookkeeping — the flag errors out
   under pytest-xdist.
-- **Retiring an environment** is a manual `git rm -r` of its tag directory.
+- **Retiring an environment** is a manual `git rm -r` of its tag directory
+  under `__mpl_variants__/`.
 
 ## xdist support
 

@@ -25,7 +25,18 @@ The tag is never user-supplied, so this is an assertion about the
 derivation rather than input validation — but it is what keeps the tag from
 ever becoming `..`, a hidden directory, or anything containing a path
 separator. `_extension.py` also uses it to tell variant directories apart
-from unrelated ones sitting in a snapshot directory.
+from unrelated ones sitting in the variant root.
+"""
+
+VARIANT_ROOT_DIRNAME = "__mpl_variants__"
+"""Directory holding every per-environment baseline variant, as
+`<variant root>/<tag>/<module_stem>/<name>.png` beside the tests.
+
+Deliberately *not* under `__snapshots__/`: syrupy accounts for everything in
+that tree, and a variant describing another environment is unused there by
+definition — reported as an unused snapshot (which fails the session) and
+deleted by the next `--snapshot-update`. See
+`_extension.MplFigureExtension._build_variant_root`.
 """
 
 DEFAULT_TOLERANCE = "0"

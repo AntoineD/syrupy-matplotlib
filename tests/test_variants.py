@@ -67,6 +67,27 @@ PLOT_C = textwrap.dedent("""\
         assert fig == snapshot_matplotlib
 """)
 
+#: A plain syrupy snapshot. Requesting the `snapshot` fixture is what brings
+#: syrupy's default extension into the session, and its discovery walks the
+#: whole `__snapshots__/` tree rather than one module's directory.
+PLAIN_SNAPSHOT = textwrap.dedent("""
+    def test_text(snapshot):
+        assert "hello" == snapshot
+""")
+
+#: A snapshot from another *single-file* `.png` extension, which parks a
+#: stranger's baseline right in the module snapshot directory.
+PNG_SNAPSHOT = textwrap.dedent("""
+    from syrupy.extensions.image import PNGImageSnapshotExtension
+
+    def test_raw(snapshot):
+        assert b"not a real png" == snapshot.use_extension(PNGImageSnapshotExtension)
+""")
+
+CO_TENANT = PLOT_A + PLAIN_SNAPSHOT
+CO_TENANT_VARIANT = PLOT_B + PLAIN_SNAPSHOT
+CO_TENANT_PNG = PLOT_A + PNG_SNAPSHOT
+
 
 def canonical_path(pytester: pytest.Pytester) -> Path:
     """Return the canonical baseline path for the shared one-test module.
@@ -85,12 +106,12 @@ def variant_path(pytester: pytest.Pytester, tag: str = TAG) -> Path:
 
     Args:
         pytester: The pytester fixture.
-        tag: Variant tag naming the subdirectory.
+        tag: Variant tag naming the directory.
 
     Returns:
-        Path to `__snapshots__/test_plots/<tag>/test_fig.png`.
+        Path to `__mpl_variants__/<tag>/test_plots/test_fig.png`.
     """
-    return pytester.path / "__snapshots__" / "test_plots" / tag / "test_fig.png"
+    return pytester.path / "__mpl_variants__" / tag / "test_plots" / "test_fig.png"
 
 
 def make_variant(pytester: pytest.Pytester, canonical: str, variant: str) -> None:
@@ -131,9 +152,9 @@ def read_records(pytester: pytest.Pytester) -> dict:
 def test_unrelated_variant_directory_ignored(pytester: pytest.Pytester) -> None:
     """A variant directory for another environment is invisible to the run.
 
-    Regression pin for the `discover_snapshots` override: syrupy's
-    `walk_snapshot_dir` recurses, so without it the stray file is reported
-    as an unused snapshot, which fails the session.
+    The plugin accounts for the tag directory of the environment it runs in
+    and for nothing else — no other tag is reported, rewritten or deleted,
+    whether or not this environment has variants of its own.
     """
     pytester.makepyfile(test_plots=PLOT_A)
     pytester.runpytest("--snapshot-update")
@@ -146,6 +167,105 @@ def test_unrelated_variant_directory_ignored(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1)
     result.stdout.no_fnmatch_line("*unused*")
     assert stray.exists()
+
+
+def test_directory_below_the_module_directory_ignored(
+    pytester: pytest.Pytester,
+) -> None:
+    """A `.png` in a subdirectory of the module directory is not accounted for.
+
+    Variants used to live at `__snapshots__/<module>/<tag>/`, so a suite
+    upgrading from that layout still has such directories. They are not
+    reported as unused (which would fail the run) and not deleted; removing
+    them is a `git rm`.
+    """
+    pytester.makepyfile(test_plots=PLOT_A)
+    pytester.runpytest("--snapshot-update")
+    legacy = canonical_path(pytester).parent / TAG / "test_fig.png"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(canonical_path(pytester).read_bytes())
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*unused*")
+    assert result.ret == 0
+    assert legacy.exists()
+
+
+def test_variants_live_outside_the_snapshot_directory(
+    pytester: pytest.Pytester,
+) -> None:
+    """Variants live at `__mpl_variants__/<tag>/<module>/`, not under `__snapshots__/`.
+
+    Pins the layout itself, which the rest of this module reaches only through
+    `variant_path`. Everything under `__snapshots__/` is syrupy's to account
+    for, and a variant describing another environment is unused there by
+    definition — see the two tests below.
+    """
+    make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
+
+    assert (
+        pytester.path / "__mpl_variants__" / TAG / "test_plots" / "test_fig.png"
+    ).exists()
+    assert not (pytester.path / "__snapshots__" / TAG).exists()
+    assert not (pytester.path / "__snapshots__" / "test_plots" / TAG).exists()
+
+
+@pytest.mark.parametrize("source", [CO_TENANT, CO_TENANT_PNG])
+def test_plain_snapshots_leave_a_foreign_variant_alone(
+    pytester: pytest.Pytester, source: str
+) -> None:
+    """Another environment's variant survives a suite with ordinary snapshots.
+
+    Requesting the `snapshot` fixture puts syrupy's default extension in the
+    session, and it discovers every file under `__snapshots__/`; a single-file
+    `.png` extension discovers `__snapshots__/test_plots/`. Neither knows about
+    variants, so a variant stored below either root was reported as *its*
+    unused snapshot — failing a run whose every test passed — and deleted by
+    the next `--snapshot-update`.
+    """
+    pytester.makepyfile(test_plots=source)
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=2)
+    foreign = variant_path(pytester, "mpl-0.1")
+    foreign.parent.mkdir(parents=True)
+    foreign.write_bytes(canonical_path(pytester).read_bytes())
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=2)
+    result.stdout.no_fnmatch_line("*unused*")
+    assert result.ret == 0
+
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=2)
+
+    assert foreign.exists(), "another environment's variant was deleted"
+
+
+def test_plain_snapshots_do_not_flag_a_shadowed_canonical(
+    pytester: pytest.Pytester,
+) -> None:
+    """Reading a variant still counts as using the canonical baseline.
+
+    Syrupy records the location handed out by `get_location` as the snapshot
+    the run used, and reports every other file under `__snapshots__/` as
+    unused — which fails the session. Naming the variant there left the
+    canonical baseline of every snapshot this environment has a variant for
+    looking abandoned.
+    """
+    pytester.makepyfile(test_plots=CO_TENANT)
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=2)
+    pytester.makepyfile(test_plots=CO_TENANT_VARIANT)
+    pytester.runpytest("--snapshot-update", PIN).assert_outcomes(passed=2)
+    assert variant_path(pytester).exists()
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=2)
+    result.stdout.fnmatch_lines([f"Images: 1 OK, 0 failed (variant baselines: {TAG})"])
+    result.stdout.no_fnmatch_line("*unused*")
+    assert result.ret == 0
+    assert canonical_path(pytester).exists()
 
 
 def test_variant_preferred_over_canonical(pytester: pytest.Pytester) -> None:
@@ -249,6 +369,27 @@ def test_both_baselines_missing(pytester: pytest.Pytester) -> None:
     assert record["image_status"] == "missing"
 
 
+def test_variant_without_canonical_fails_a_comparison_run(
+    pytester: pytest.Pytester,
+) -> None:
+    """A variant whose canonical baseline is gone fails instead of passing.
+
+    The variant satisfies the read, so the comparison passed and the run said
+    nothing: a baseline had been lost, the variant shadowing it could no
+    longer be regenerated (a pin run compares against the canonical), and
+    every environment without that variant was failing meanwhile.
+    """
+    make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
+    canonical_path(pytester).unlink()
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines([
+        f"*canonical baseline missing for 'test_fig'.*shadows it at *{TAG}*"
+    ])
+
+
 def test_tolerance_respected_on_canonical_fallback(
     pytester: pytest.Pytester,
 ) -> None:
@@ -322,6 +463,9 @@ def test_emptied_variant_directory_is_removed(pytester: pytest.Pytester) -> None
     pytester.runpytest("--snapshot-update", PIN).assert_outcomes(passed=1)
 
     assert not variant_path(pytester).parent.exists()
+    assert not variant_path(pytester).parent.parent.exists(), (
+        "the tag directory outlived the last module it held variants for"
+    )
 
     pytester.makepyfile(test_plots=PLOT_C)
     result = pytester.runpytest("--snapshot-update")
@@ -338,7 +482,7 @@ def test_empty_variant_directory_is_not_stale(pytester: pytest.Pytester) -> None
     """
     pytester.makepyfile(test_plots=PLOT_A)
     pytester.runpytest("--snapshot-update")
-    variant_path(pytester).parent.mkdir()
+    variant_path(pytester).parent.mkdir(parents=True)
     pytester.makepyfile(test_plots=PLOT_B)
 
     result = pytester.runpytest("--snapshot-update")
@@ -375,8 +519,9 @@ def test_stale_warning_scoped_to_the_rewritten_directory(
 def test_pin_run_clears_orphaned_variants(pytester: pytest.Pytester) -> None:
     """A variant whose test is gone is dropped by the next pin run.
 
-    Comparison runs never report it — each run accounts only for the
-    baselines it maintains — so this is the one command that collects it.
+    No assertion can report it — the test that owned it no longer runs — so a
+    variant-writing run sweeps the tag directory for variants left without a
+    canonical baseline, which is what makes them unusable.
     """
     two_tests = textwrap.dedent("""\
         import matplotlib.pyplot as plt
@@ -408,8 +553,14 @@ def test_pin_run_clears_orphaned_variants(pytester: pytest.Pytester) -> None:
     pytester.runpytest("--snapshot-update").assert_outcomes(passed=1)
     assert orphan.exists(), "a canonical re-baseline must leave variants alone"
 
-    pytester.runpytest("--snapshot-update", PIN).assert_outcomes(passed=1)
+    result = pytester.runpytest("--snapshot-update", PIN)
 
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines([
+        "Deleted 1 orphaned variant baseline (no canonical baseline left):"
+    ])
+    # Not through `fnmatch_lines`: a parametrize id makes the path a glob.
+    assert str(orphan) in result.stdout.str()
     assert not orphan.exists()
 
 
@@ -605,11 +756,12 @@ def test_no_stale_warning_when_nothing_rewritten(pytester: pytest.Pytester) -> N
 
 
 def test_pinning_does_not_flag_canonical_unused(pytester: pytest.Pytester) -> None:
-    """Writing variants leaves the canonical baselines out of unused accounting.
+    """A variant-writing run counts the canonical baselines it read as used.
 
-    Mirror of the previous test: in variant-writing mode syrupy's `used` set
-    holds only variant locations, so an unfiltered discovery would report
-    every canonical baseline as unused and delete it.
+    Mirror of the previous test, on the mode that would lose the most: syrupy
+    deletes what it reports unused when updating, so a pin run that named
+    variant locations as the snapshots it used would delete the canonical
+    baselines it exists to compare against.
     """
     make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
 

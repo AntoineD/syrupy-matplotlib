@@ -259,17 +259,16 @@ def test_diff_lines_uses_stashed_message() -> None:
     assert ext.diff_lines(b"", b"") == ["line1", "line2"]
 
 
-def test_get_location_without_a_tag_stays_canonical(
+def test_get_location_reports_the_canonical_baseline(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An empty tag disables variants entirely, variant-writing mode included.
+    """Even a variant-writing run reports the canonical path as the snapshot.
 
-    `--snapshot-matplotlib-pin-variant` is refused up front when matplotlib's
-    version metadata is unreadable, but the location must not be built from
-    the empty tag either — that would write baselines to
-    `__snapshots__/test_extension//<name>.png`.
+    Syrupy treats the location as the file the run used and reports every
+    other one under `__snapshots__/` as unused, so naming a variant path here
+    would hand the canonical baseline to syrupy's cleanup.
     """
-    monkeypatch.setattr(MplFigureExtension, "_mpl_variant", "")
+    monkeypatch.setattr(MplFigureExtension, "_mpl_variant", "mpl-9.9")
     monkeypatch.setattr(MplFigureExtension, "_mpl_write_variants", True)
 
     location = Path(
@@ -279,18 +278,32 @@ def test_get_location_without_a_tag_stays_canonical(
     )
 
     assert location.parent.name == "test_extension"
-    assert location.name == "test_get_location_without_a_tag_stays_canonical.png"
+    assert location.parent.parent.name == "__snapshots__"
+    assert location.name == "test_get_location_reports_the_canonical_baseline.png"
 
 
-def test_variant_helpers_are_inert_without_a_tag(
+def test_variant_location_is_inert_without_a_tag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """With no tag there is neither a variant path to build nor one to undo."""
+    """With no tag there is no variant path to build, so variants switch off."""
     monkeypatch.setattr(MplFigureExtension, "_mpl_variant", "")
     canonical = str(Path("__snapshots__", "test_mod", "test_it.png"))
 
     assert MplFigureExtension._build_variant_location(canonical) is None
-    assert MplFigureExtension._resolve_canonical_location(canonical) is None
+
+
+def test_variant_location_sits_outside_the_snapshot_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The variant mirrors the module directory under its own root."""
+    monkeypatch.setattr(MplFigureExtension, "_mpl_variant", "mpl-9.9")
+    canonical = Path("tests", "__snapshots__", "test_mod", "test_it.png")
+
+    variant = MplFigureExtension._build_variant_location(str(canonical))
+
+    assert variant == Path(
+        "tests", "__mpl_variants__", "mpl-9.9", "test_mod", "test_it.png"
+    )
 
 
 def test_current_variant_path_without_a_canonical_location() -> None:
@@ -312,13 +325,18 @@ def test_variant_dirs_are_scanned_once_per_directory(
     collector = ResultCollector()
     monkeypatch.setattr(MplFigureExtension, "_mpl_collector", collector)
     monkeypatch.setattr(MplFigureExtension, "_mpl_scanned_dirs", set())
-    snapshot_dir = tmp_path / "test_mod"
-    (snapshot_dir / "mpl-9.9").mkdir(parents=True)
-    (snapshot_dir / "mpl-9.9" / "test_it.png").write_bytes(b"x")
+    snapshot_dir = tmp_path / "__snapshots__" / "test_mod"
+    snapshot_dir.mkdir(parents=True)
+    variant_root = tmp_path / "__mpl_variants__"
 
+    def add_variant(tag: str) -> None:
+        module_dir = variant_root / tag / "test_mod"
+        module_dir.mkdir(parents=True)
+        (module_dir / "test_it.png").write_bytes(b"x")
+
+    add_variant("mpl-9.9")
     MplFigureExtension._note_variant_dirs(snapshot_dir)
-    (snapshot_dir / "mpl-8.8").mkdir()
-    (snapshot_dir / "mpl-8.8" / "test_it.png").write_bytes(b"x")
+    add_variant("mpl-8.8")
     MplFigureExtension._note_variant_dirs(snapshot_dir)
 
     assert collector.variant_dirs_present == {"mpl-9.9"}

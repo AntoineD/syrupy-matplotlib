@@ -7,6 +7,8 @@ The plugin owns:
   `snapshot_matplotlib` fixture.
 - Session-finish reporting (HTML/JSON) and xdist fragment merge for the
   collector.
+- Pruning variant baselines that no canonical baseline backs, which syrupy's
+  unused-snapshot cleanup cannot see (`_prune_orphaned_variants`).
 """
 
 from __future__ import annotations
@@ -121,7 +123,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help=(
             "With --snapshot-update, write the baselines this run renders as "
             "variants pinned to the installed matplotlib "
-            "(__snapshots__/<module>/mpl-<major>.<minor>/) instead of "
+            "(__mpl_variants__/mpl-<major>.<minor>/<module>/) instead of "
             "rewriting the canonical baselines. Comparison runs pick those up "
             "automatically and need no flag."
         ),
@@ -411,6 +413,10 @@ class Plugin:
     _is_xdist_worker: bool
     """`True` when running as an xdist worker."""
 
+    _pruned_variants: list[Path]
+    """Orphaned variant baselines a variant-writing run deleted, for the
+    terminal summary."""
+
     def __init__(
         self,
         config: Config,
@@ -432,6 +438,7 @@ class Plugin:
         self.update_snapshots = update_snapshots
         self.collector = ResultCollector(results_root=diff_dir)
         self._is_xdist_worker = is_xdist_worker
+        self._pruned_variants = []
 
     def bind_extension_class(self) -> None:
         """Stamp session-wide state onto `MplFigureExtension` class attributes.
@@ -531,7 +538,8 @@ class Plugin:
 
         Args:
             session: The current pytest session.
-            exitstatus: Session exit code (unused).
+            exitstatus: Session exit code; a variant-writing run prunes
+                orphaned variants only when it is zero.
         """
         if session.config.option.collectonly:
             return
@@ -541,6 +549,15 @@ class Plugin:
 
         # Outside xdist, `merge_worker_fragments` finds nothing and no-ops.
         self._merge_xdist_results(session.config)
+
+        # Only a clean variant-writing run prunes: a failed one may be failing
+        # *because* a canonical baseline went missing, and deleting the variant
+        # that reported it would destroy the copy the user is about to restore
+        # the canonical baseline from.
+        if self.config.write_variants and exitstatus == 0:
+            self._pruned_variants = _prune_orphaned_variants(
+                session, self.config.variant
+            )
 
         if self.config.report:
             self._write_reports()
@@ -574,7 +591,30 @@ class Plugin:
             verbose=int(config.option.verbose) >= 1,
             deleted_variants=self.collector.deleted_variants,
         )
+        self._report_pruned_variants(terminalreporter)
         self._warn_about_stale_variants(terminalreporter)
+
+    def _report_pruned_variants(self, terminalreporter: Any) -> None:
+        """List the orphaned variant baselines this run deleted.
+
+        Reported separately from the variants deleted because the environment
+        stopped needing them: those name a test that ran, these name a file
+        whose test is gone.
+
+        Args:
+            terminalreporter: Pytest's terminal reporter.
+        """
+        if not self._pruned_variants:
+            return
+        count = len(self._pruned_variants)
+        plural = "" if count == 1 else "s"
+        # ASCII only: see the note in `_warn_if_png_ignored`.
+        terminalreporter.write_line(
+            f"Deleted {count} orphaned variant baseline{plural} (no canonical "
+            "baseline left):"
+        )
+        for path in self._pruned_variants:
+            terminalreporter.write_line(f"    {path}")
 
     def _warn_about_stale_variants(self, terminalreporter: Any) -> None:
         """Warn that a canonical re-baseline may have outdated the variants.
@@ -725,6 +765,54 @@ def _clear_previous_artifacts(diff_dir: Path) -> None:
     for image in diff_dir.rglob("*.png"):
         with contextlib.suppress(OSError):
             image.unlink()
+
+
+def _prune_orphaned_variants(session: pytest.Session, tag: str) -> list[Path]:
+    """Delete this environment's variants that no canonical baseline backs.
+
+    A variant whose canonical baseline is gone — the test was renamed, retired,
+    or its module deleted — is unusable: comparison runs refuse it, and it
+    cannot be regenerated, since pinning compares a render against the
+    canonical baseline. The test that owned it no longer runs, so no assertion
+    can collect it; a variant-writing run sweeps the whole tag directory
+    instead.
+
+    "No canonical baseline" is a property of the files, not of the run, so
+    narrowing the run (`-k`, `--lf`) cannot make a variant look orphaned. That
+    is what syrupy's own unused-snapshot cleanup — which this replaces for
+    variants, having no way to see them — needs its ran-everything guard for.
+
+    Only variant roots beside a test file this session collected are swept: a
+    root whose entire test directory is gone is left alone rather than hunted
+    for across the tree. The caller restricts this to clean runs.
+
+    Args:
+        session: The current pytest session.
+        tag: Variant tag of this environment.
+
+    Returns:
+        The deleted files, in the order they were swept.
+    """
+    # Syrupy's `--snapshot-dirname`, which is where the canonical baselines are.
+    snapshot_dirname = str(session.config.option.snapshot_dirname)
+    roots = {item.path.parent / _config.VARIANT_ROOT_DIRNAME for item in session.items}
+    pruned: list[Path] = []
+    for root in sorted(roots):
+        tag_dir = root / tag
+        if not tag_dir.is_dir():
+            continue
+        # `<tag>/<module_stem>/<name>.png` is the whole layout; anything
+        # deeper, or not a baseline, is not this plugin's to delete.
+        for variant in sorted(tag_dir.glob("*/*.png")):
+            canonical = (
+                root.parent / snapshot_dirname / variant.parent.name / variant.name
+            )
+            if canonical.exists():
+                continue
+            variant.unlink()
+            pruned.append(variant)
+        _remove_empty_subtree(root)
+    return pruned
 
 
 def _remove_empty_subtree(root: Path) -> None:
