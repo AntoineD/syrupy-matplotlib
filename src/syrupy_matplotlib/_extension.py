@@ -368,12 +368,12 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         params, stem = self._stamped_state()
         # Raising is what stops the write: syrupy queues a snapshot write for
         # any failed assertion in update mode, and only an exception escaping
-        # `_assert`'s try block skips it. Refusing here also keeps the variant
-        # subdirectory from being created at all, and runs before the
-        # GENERATED record below, so a refused snapshot is not counted as
-        # created. `serialize()` is the hook that carries it in a comparison
-        # run too: an exception from `matches()` is swallowed by syrupy's
-        # `_assert`, which would turn the refusal into a pixel mismatch.
+        # `_assert`'s try block skips it. It has to be raised here rather than
+        # in `matches()`, which syrupy never calls when the baseline read
+        # returned `None` — exactly the pin run whose snapshot has no baseline
+        # at all. Refusing here also keeps the variant subdirectory from being
+        # created, and runs before the GENERATED record below, so a refused
+        # snapshot is not counted as created.
         if self._mpl_canonical_missing:
             raise RuntimeError(
                 _build_variant_only_message(stem, self._current_variant_path())

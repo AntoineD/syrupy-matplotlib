@@ -45,10 +45,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to do for variants stored under its own tree.
 
 - A comparison run that reads a variant whose canonical baseline is missing
-  now fails, naming both paths, instead of passing off the variant. Such a
-  snapshot cannot be regenerated — pinning a variant compares a render
-  against the canonical baseline — and every environment without that variant
-  was failing meanwhile.
+  now fails, naming the variant file that shadows it, instead of passing off
+  the variant. Such a snapshot cannot be regenerated — pinning a variant
+  compares a render against the canonical baseline — and every environment
+  without that variant was failing meanwhile.
 
 - The JSON report records which baseline each comparison used
   (`baseline_variant`), the HTML reports label it, and the terminal summary
