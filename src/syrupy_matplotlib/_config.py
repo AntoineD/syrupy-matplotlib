@@ -28,7 +28,7 @@ separator. `_extension.py` also uses it to tell variant directories apart
 from unrelated ones sitting in the variant root.
 """
 
-VARIANT_ROOT_DIRNAME = "__mpl_variants__"
+VARIANT_ROOT_DIRNAME = "__snapshots_variants__"
 """Directory holding every per-environment baseline variant, as
 `<variant root>/<tag>/<module_stem>/<name>.png` beside the tests.
 

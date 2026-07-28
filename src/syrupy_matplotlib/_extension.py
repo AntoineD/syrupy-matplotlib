@@ -48,7 +48,7 @@ class MplFigureExtension(SingleFileSnapshotExtension):
     """One `.png` per snapshot under `__snapshots__/<module_stem>/`.
 
     Per-environment variants of those baselines live under
-    `__mpl_variants__/<tag>/<module_stem>/`, and this class handles them around
+    `__snapshots_variants__/<tag>/<module_stem>/`, and this class handles them around
     syrupy rather than through it: `get_location` is left reporting the
     canonical path in every mode, `read_snapshot_data_from_location` swaps in
     the variant's bytes, and `_decide_variant_write` writes the variant file

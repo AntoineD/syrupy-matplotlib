@@ -86,7 +86,7 @@ tests/
         test_foo/
             test_bar.png          # baseline image
             test_bar[param].png   # parametrized variant
-    __mpl_variants__/             # per-environment baseline variants
+    __snapshots_variants__/             # per-environment baseline variants
         mpl-3.10/
             test_foo/
                 test_bar.png
@@ -96,7 +96,7 @@ Baseline filename stem = test function name + parametrize ID (brackets preserved
 
 ### Baseline variants
 
-A comparison prefers `__mpl_variants__/<tag>/<module_stem>/<name>.png` over the canonical baseline when it exists; the tag is derived from the installed matplotlib and cannot be overridden. `--snapshot-update --snapshot-matplotlib-pin-variant` writes those files (only where the render differs from the canonical baseline beyond the tolerance), plain `--snapshot-update` writes canonical ones.
+A comparison prefers `__snapshots_variants__/<tag>/<module_stem>/<name>.png` over the canonical baseline when it exists; the tag is derived from the installed matplotlib and cannot be overridden. `--snapshot-update --snapshot-matplotlib-pin-variant` writes those files (only where the render differs from the canonical baseline beyond the tolerance), plain `--snapshot-update` writes canonical ones.
 
 Variants are handled *around* syrupy, not through it, and this is load-bearing. Syrupy counts the location `get_location` returns as the snapshot the run used, then reports every other file under `__snapshots__/` as unused — which fails the session — and deletes it while updating. Its default (amber) extension discovers that whole tree, so one plain `snapshot` fixture anywhere in the directory arms the sweep. Hence:
 

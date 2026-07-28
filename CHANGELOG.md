@@ -11,30 +11,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Baseline variants: a snapshot can carry an extra baseline under
-  `__mpl_variants__/mpl-<major>.<minor>/<module>/`, used instead of the
+  `__snapshots_variants__/mpl-<major>.<minor>/<module>/`, used instead of the
   canonical one when the run happens under that matplotlib. A CI matrix
   whose oldest Python resolves an older matplotlib no longer fails every
   comparison over rendering differences it cannot avoid — and no job needs
   a special pytest command, since the directory name is derived from the
   installed matplotlib rather than configured.
-
-  Variants sit outside `__snapshots__/`, and the plugin — not syrupy — reads,
-  writes and prunes them. Syrupy accounts for everything in that tree and
-  treats the location it is handed as the only file the run used: a variant
-  stored there was reported as an unused snapshot, which fails a session whose
-  every test passed, and deleted by the next `--snapshot-update`; a run that
-  named a variant as the file it used surrendered the canonical baseline
-  behind it to the same cleanup. One `snapshot` fixture anywhere in the
-  directory was enough, since syrupy's default extension discovers the whole
-  tree. A pin run now also deletes variants left without a canonical baseline
-  (a renamed or retired test) and lists them, which is what syrupy's
-  unused-snapshot cleanup used to do for variants stored under its own tree.
-
-- A comparison run that reads a variant whose canonical baseline is missing
-  now fails, naming both paths, instead of passing off the variant. Such a
-  snapshot cannot be regenerated — pinning a variant compares a render
-  against the canonical baseline — and every environment without that variant
-  was failing meanwhile.
 
   `--snapshot-update --snapshot-matplotlib-pin-variant` records them, in
   the environment whose pixels they describe. It writes a variant only
@@ -45,6 +27,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--snapshot-update` keeps writing canonical baselines and warns when it
   rewrote baselines that existing variants may no longer match (the warning
   does not survive pytest-xdist — re-baseline without `-n`).
+
+  The variants sit outside `__snapshots__/`, and the plugin — not syrupy —
+  reads, writes and prunes them. Syrupy accounts for everything in that tree
+  and treats the location it is handed as the only file the run used: a
+  variant stored there was reported as an unused snapshot, which fails a
+  session whose every test passed, and deleted by the next
+  `--snapshot-update`; a run that named a variant as the file it used
+  surrendered the canonical baseline behind it to the same cleanup. One
+  `snapshot` fixture anywhere in the directory was enough, since syrupy's
+  default extension discovers the whole tree. A pin run therefore also
+  deletes variants left without a canonical baseline (a renamed or retired
+  test) and lists them, which is what syrupy's unused-snapshot cleanup used
+  to do for variants stored under its own tree.
+
+- A comparison run that reads a variant whose canonical baseline is missing
+  now fails, naming both paths, instead of passing off the variant. Such a
+  snapshot cannot be regenerated — pinning a variant compares a render
+  against the canonical baseline — and every environment without that variant
+  was failing meanwhile.
 
 - The JSON report records which baseline each comparison used
   (`baseline_variant`), the HTML reports label it, and the terminal summary

@@ -123,7 +123,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help=(
             "With --snapshot-update, write the baselines this run renders as "
             "variants pinned to the installed matplotlib "
-            "(__mpl_variants__/mpl-<major>.<minor>/<module>/) instead of "
+            "(__snapshots_variants__/mpl-<major>.<minor>/<module>/) instead of "
             "rewriting the canonical baselines. Comparison runs pick those up "
             "automatically and need no flag."
         ),

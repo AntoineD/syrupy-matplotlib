@@ -302,7 +302,7 @@ def test_variant_location_sits_outside_the_snapshot_directory(
     variant = MplFigureExtension._build_variant_location(str(canonical))
 
     assert variant == Path(
-        "tests", "__mpl_variants__", "mpl-9.9", "test_mod", "test_it.png"
+        "tests", "__snapshots_variants__", "mpl-9.9", "test_mod", "test_it.png"
     )
 
 
@@ -327,7 +327,7 @@ def test_variant_dirs_are_scanned_once_per_directory(
     monkeypatch.setattr(MplFigureExtension, "_mpl_scanned_dirs", set())
     snapshot_dir = tmp_path / "__snapshots__" / "test_mod"
     snapshot_dir.mkdir(parents=True)
-    variant_root = tmp_path / "__mpl_variants__"
+    variant_root = tmp_path / "__snapshots_variants__"
 
     def add_variant(tag: str) -> None:
         module_dir = variant_root / tag / "test_mod"

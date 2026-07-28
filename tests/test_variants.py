@@ -109,9 +109,11 @@ def variant_path(pytester: pytest.Pytester, tag: str = TAG) -> Path:
         tag: Variant tag naming the directory.
 
     Returns:
-        Path to `__mpl_variants__/<tag>/test_plots/test_fig.png`.
+        Path to `__snapshots_variants__/<tag>/test_plots/test_fig.png`.
     """
-    return pytester.path / "__mpl_variants__" / tag / "test_plots" / "test_fig.png"
+    return (
+        pytester.path / "__snapshots_variants__" / tag / "test_plots" / "test_fig.png"
+    )
 
 
 def make_variant(pytester: pytest.Pytester, canonical: str, variant: str) -> None:
@@ -196,7 +198,7 @@ def test_directory_below_the_module_directory_ignored(
 def test_variants_live_outside_the_snapshot_directory(
     pytester: pytest.Pytester,
 ) -> None:
-    """Variants live at `__mpl_variants__/<tag>/<module>/`, not under `__snapshots__/`.
+    """Variants live in their own root, not under `__snapshots__/`.
 
     Pins the layout itself, which the rest of this module reaches only through
     `variant_path`. Everything under `__snapshots__/` is syrupy's to account
@@ -206,7 +208,7 @@ def test_variants_live_outside_the_snapshot_directory(
     make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
 
     assert (
-        pytester.path / "__mpl_variants__" / TAG / "test_plots" / "test_fig.png"
+        pytester.path / "__snapshots_variants__" / TAG / "test_plots" / "test_fig.png"
     ).exists()
     assert not (pytester.path / "__snapshots__" / TAG).exists()
     assert not (pytester.path / "__snapshots__" / "test_plots" / TAG).exists()

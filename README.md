@@ -70,7 +70,7 @@ tests/
     __snapshots__/
         test_plots/
             test_sine_wave.png
-    __mpl_variants__/                 # optional, see "Baseline variants"
+    __snapshots_variants__/                 # optional, see "Baseline variants"
         mpl-3.10/
             test_plots/
                 test_sine_wave.png
@@ -409,7 +409,7 @@ tests/
     __snapshots__/
         test_plots/
             test_sine_wave.png            # canonical baseline
-    __mpl_variants__/
+    __snapshots_variants__/
         mpl-3.10/
             test_plots/
                 test_sine_wave.png        # used only under matplotlib 3.10
@@ -418,7 +418,7 @@ tests/
 **There is nothing to configure, and no CI job needs a special command.** The
 directory name is derived from the installed matplotlib
 (`mpl-<major>.<minor>`), so every run already knows which one applies. A
-comparison reads `__mpl_variants__/<tag>/<module_stem>/<name>.png` when that
+comparison reads `__snapshots_variants__/<tag>/<module_stem>/<name>.png` when that
 file exists and the canonical baseline otherwise.
 
 Variants sit in their own directory beside `__snapshots__/`, not inside it,
@@ -459,7 +459,7 @@ missing, step 2 fails and tells you to run step 1 first.
 
 - **Pinning happens in the environment, never on the command line.** There is
   no option, environment variable or flag value that names a tag. Installing
-  matplotlib 3.10 is what makes a run write to `__mpl_variants__/mpl-3.10/`.
+  matplotlib 3.10 is what makes a run write to `__snapshots_variants__/mpl-3.10/`.
 - **Patch releases share a tag.** `mpl-3.10` covers 3.10.x; matplotlib does
   not normally change rendering in a patch release.
 - **One tag at a time**, with no fallback chain — a variant is keyed on the
@@ -484,7 +484,7 @@ missing, step 2 fails and tells you to run step 1 first.
   the deletions, which is per-worker bookkeeping — the flag errors out
   under pytest-xdist.
 - **Retiring an environment** is a manual `git rm -r` of its tag directory
-  under `__mpl_variants__/`.
+  under `__snapshots_variants__/`.
 
 ## xdist support
 
