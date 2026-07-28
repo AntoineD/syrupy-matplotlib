@@ -23,7 +23,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   where the render differs from the canonical baseline beyond the
   tolerance, deletes ones that have become redundant, and refuses to create
   a snapshot that has no canonical baseline yet. It also refuses to run
-  under pytest-xdist (`-n`); comparison runs remain xdist-safe. Plain
+  under pytest-xdist (`-n`); comparison runs remain xdist-safe. An absolute
+  `--snapshot-dirname` turns variants off entirely — the variant root sits
+  beside the test files, which a detached snapshot tree does not have — and
+  pinning refuses to run there. Plain
   `--snapshot-update` keeps writing canonical baselines and warns when it
   rewrote baselines that existing variants may no longer match (the warning
   does not survive pytest-xdist — re-baseline without `-n`).

@@ -819,6 +819,47 @@ def test_tag_follows_installed_matplotlib(pytester: pytest.Pytester) -> None:
     assert variant_path(pytester).exists()
 
 
+def test_absolute_snapshot_dirname_disables_variants(
+    pytester: pytest.Pytester,
+) -> None:
+    """Variants are inert when syrupy's `--snapshot-dirname` is absolute.
+
+    The variant root sits beside the test files, which a detached snapshot
+    tree does not have. Every mode must fall back to canonical-only behavior
+    rather than crash walking `module_dir.parents` past the filesystem root —
+    including a rewrite, whose stale-variant scan has no root to look in.
+    """
+    dirname = ("--snapshot-dirname", str(pytester.path / "abs-snapshots"))
+    pytester.makepyfile(test_plots=PLOT_A)
+    pytester.runpytest("--snapshot-update", *dirname).assert_outcomes(passed=1)
+    pytester.makepyfile(test_plots=PLOT_B)
+    result = pytester.runpytest("--snapshot-update", *dirname)
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*may now be stale*")
+
+    result = pytester.runpytest(*dirname)
+
+    result.assert_outcomes(passed=1)
+    assert not (pytester.path / "__snapshots_variants__").exists()
+
+
+def test_pin_refuses_an_absolute_snapshot_dirname(
+    pytester: pytest.Pytester,
+) -> None:
+    """Pinning into a variant root no run can look up is refused."""
+    pytester.makepyfile(test_plots=PLOT_A)
+
+    result = pytester.runpytest(
+        "--snapshot-update",
+        PIN,
+        "--snapshot-dirname",
+        str(pytester.path / "abs-snapshots"),
+    )
+
+    assert result.ret != 0
+    result.stderr.fnmatch_lines([f"*{PIN} does not support an absolute*"])
+
+
 def test_pin_without_update_is_an_error(pytester: pytest.Pytester) -> None:
     """Pinning is a modifier on `--snapshot-update`, not a mode of its own."""
     pytester.makepyfile(test_plots=PLOT_A)

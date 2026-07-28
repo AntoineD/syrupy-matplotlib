@@ -218,8 +218,9 @@ def resolve_config(config: pytest.Config) -> Config:
             `snapshot_matplotlib_savefig_kwargs` is not a JSON object, if the
             report directory resolves to the pytest rootpath or one of its
             ancestors, or if `--snapshot-matplotlib-pin-variant` is used
-            without `--snapshot-update`, under pytest-xdist, or without
-            matplotlib version metadata to derive a tag from.
+            without `--snapshot-update`, under pytest-xdist, with an absolute
+            `--snapshot-dirname`, or without matplotlib version metadata to
+            derive a tag from.
     """
     report_raw: str = (
         config.getoption("--snapshot-matplotlib-report", default=None) or ""
@@ -307,8 +308,8 @@ def _resolve_variant(config: pytest.Config) -> tuple[str, bool]:
 
     Raises:
         ValueError: If `--snapshot-matplotlib-pin-variant` is given without
-            `--snapshot-update`, under pytest-xdist, or with no tag to pin
-            to.
+            `--snapshot-update`, under pytest-xdist, with an absolute
+            `--snapshot-dirname`, or with no tag to pin to.
     """
     variant = derive_variant_tag()
     pin = bool(config.getoption("--snapshot-matplotlib-pin-variant", default=False))
@@ -329,6 +330,17 @@ def _resolve_variant(config: pytest.Config) -> tuple[str, bool]:
         msg = (
             "--snapshot-matplotlib-pin-variant does not run under "
             "pytest-xdist; rerun without -n."
+        )
+        raise ValueError(msg)
+    # The variant root is defined as sitting beside the test files; an
+    # absolute --snapshot-dirname detaches the snapshot tree from them, so no
+    # run can look a variant up there. Pinning would record baselines nothing
+    # ever reads.
+    if Path(str(config.option.snapshot_dirname)).is_absolute():
+        msg = (
+            "--snapshot-matplotlib-pin-variant does not support an absolute "
+            "--snapshot-dirname; variant baselines live in "
+            f"{VARIANT_ROOT_DIRNAME}/ beside the test files."
         )
         raise ValueError(msg)
     if not variant:

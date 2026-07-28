@@ -222,7 +222,7 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         return filtered
 
     @classmethod
-    def _build_variant_root(cls, module_dir: Path) -> Path:
+    def _build_variant_root(cls, module_dir: Path) -> Path | None:
         """Return the directory tree holding every variant beside the tests.
 
         `VARIANT_ROOT_DIRNAME` sits next to the snapshot directory rather than
@@ -238,25 +238,35 @@ class MplFigureExtension(SingleFileSnapshotExtension):
             module_dir: The `<snapshot dir>/<module_stem>` directory.
 
         Returns:
-            The variant root beside the snapshot directory.
+            The variant root beside the snapshot directory, or `None` when
+            syrupy's `--snapshot-dirname` is absolute — that detaches the
+            snapshot tree from the test files, leaving no "beside the tests"
+            to put the root in, so variants are off (`resolve_config` refuses
+            to pin there for the same reason).
         """
+        dirname = Path(cls.snapshot_dirname)
+        if dirname.is_absolute():
+            return None
         # `snapshot_dirname` is syrupy's `--snapshot-dirname`, and may itself
         # be a nested path; its depth is what makes the test file's own
         # directory reachable from the module directory.
-        depth = len(Path(cls.snapshot_dirname).parts)
-        return module_dir.parents[depth] / VARIANT_ROOT_DIRNAME
+        return module_dir.parents[len(dirname.parts)] / VARIANT_ROOT_DIRNAME
 
     @classmethod
-    def _build_variant_dir(cls, module_dir: Path) -> Path:
+    def _build_variant_dir(cls, module_dir: Path) -> Path | None:
         """Return the directory holding this environment's variants for a module.
 
         Args:
             module_dir: The `<snapshot dir>/<module_stem>` directory.
 
         Returns:
-            `<variant root>/<tag>/<module_stem>`.
+            `<variant root>/<tag>/<module_stem>`, or `None` when no variant
+            root exists (absolute `--snapshot-dirname`).
         """
-        return cls._build_variant_root(module_dir) / cls._mpl_variant / module_dir.name
+        root = cls._build_variant_root(module_dir)
+        if root is None:
+            return None
+        return root / cls._mpl_variant / module_dir.name
 
     @classmethod
     def _build_variant_location(cls, canonical: str) -> Path | None:
@@ -267,12 +277,16 @@ class MplFigureExtension(SingleFileSnapshotExtension):
 
         Returns:
             The path under the tag directory, or `None` when no variant tag
-            is active.
+            is active or no variant root exists (absolute
+            `--snapshot-dirname`).
         """
         if not cls._mpl_variant:
             return None
         path = Path(canonical)
-        return cls._build_variant_dir(path.parent) / path.name
+        variant_dir = cls._build_variant_dir(path.parent)
+        if variant_dir is None:
+            return None
+        return variant_dir / path.name
 
     @classmethod
     def _note_variant_dirs(cls, snapshot_dir: Path) -> None:
@@ -299,8 +313,13 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         if key in cls._mpl_scanned_dirs:
             return
         cls._mpl_scanned_dirs.add(key)
+        root = cls._build_variant_root(snapshot_dir)
+        if root is None:
+            # Absolute `--snapshot-dirname`: no variant root exists, so there
+            # is nothing a rewrite could outdate.
+            return
         try:
-            entries = list(cls._build_variant_root(snapshot_dir).iterdir())
+            entries = list(root.iterdir())
         except OSError:
             # No variant root at all: the common case for a suite that never
             # pinned anything.
@@ -496,8 +515,10 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         self._mpl_baseline_variant = None
         variant_path = self._current_variant_path()
         if variant_path is None:  # pragma: no cover
-            # No tag to pin to, which `resolve_config` refuses up front.
-            msg = "variant-writing mode reached without a variant tag."
+            # No tag to pin to, or no variant root (absolute
+            # `--snapshot-dirname`) — both refused by `resolve_config` up
+            # front.
+            msg = "variant-writing mode reached without a variant location."
             raise RuntimeError(msg)
         canonical_bytes = self._read_canonical_bytes()
         # The practical case — variant read fine, canonical deleted — is
@@ -586,8 +607,8 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         """Return the variant path for the snapshot being asserted.
 
         Returns:
-            The path, or `None` when no canonical location was resolved (no
-            active tag).
+            The path, or `None` when no canonical location was resolved, no
+            tag is active, or no variant root exists.
         """
         if self._mpl_canonical_location is None:
             return None

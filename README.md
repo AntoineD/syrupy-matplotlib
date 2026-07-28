@@ -483,6 +483,10 @@ missing, step 2 fails and tells you to run step 1 first.
   is what CI does), but a pin run deletes redundant variants and reports
   the deletions, which is per-worker bookkeeping — the flag errors out
   under pytest-xdist.
+- **An absolute `--snapshot-dirname` turns variants off.** The variant root
+  sits beside the test files, and an absolute snapshot directory detaches
+  the snapshot tree from them — comparisons use the canonical baselines
+  only, and pinning refuses to run.
 - **Retiring an environment** is a manual `git rm -r` of its tag directory
   under `__snapshots_variants__/`.
 

@@ -327,3 +327,19 @@ def test_pin_without_a_variant_tag_is_an_error(
         pytester.parseconfigure(
             "--snapshot-update", "--snapshot-matplotlib-pin-variant"
         )
+
+
+def test_pin_with_an_absolute_snapshot_dirname_is_an_error(
+    pytester: pytest.Pytester,
+) -> None:
+    """Variants live beside the test files, which an absolute snapshot
+    directory does not have; lookup is off there, so a pin run would record
+    baselines nothing ever reads.
+    """
+    with pytest.raises(pytest.UsageError, match="absolute"):
+        pytester.parseconfigure(
+            "--snapshot-update",
+            "--snapshot-matplotlib-pin-variant",
+            "--snapshot-dirname",
+            str(pytester.path / "abs-snapshots"),
+        )

@@ -306,6 +306,22 @@ def test_variant_location_sits_outside_the_snapshot_directory(
     )
 
 
+def test_variant_location_is_inert_under_an_absolute_snapshot_dirname(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An absolute `--snapshot-dirname` leaves variants off, not crashing.
+
+    The variant root is defined as sitting beside the test files, which a
+    detached snapshot tree does not have; walking `module_dir.parents` by the
+    dirname's depth used to raise `IndexError` on every baseline read.
+    """
+    monkeypatch.setattr(MplFigureExtension, "_mpl_variant", "mpl-9.9")
+    monkeypatch.setattr(MplFigureExtension, "snapshot_dirname", str(tmp_path / "snaps"))
+    canonical = tmp_path / "snaps" / "test_mod" / "test_it.png"
+
+    assert MplFigureExtension._build_variant_location(str(canonical)) is None
+
+
 def test_current_variant_path_without_a_canonical_location() -> None:
     """No canonical location resolved means the read never went through a variant."""
     ext = _fresh_extension()
