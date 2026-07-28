@@ -579,9 +579,11 @@ class Plugin:
     def _warn_about_stale_variants(self, terminalreporter: Any) -> None:
         """Warn that a canonical re-baseline may have outdated the variants.
 
-        Fires only when this run wrote a baseline (a ``GENERATED`` record
-        exists): an idempotent `--snapshot-update` that rewrote nothing
-        cannot have outdated anything, and the warning claims a rewrite.
+        The tags come from `MplFigureExtension`, which collects them only
+        while overwriting a canonical baseline with different bytes, and only
+        from the directory being overwritten. So an idempotent
+        `--snapshot-update` stays quiet — the warning claims a rewrite — and
+        so does one that rewrote a module with no variants next to it.
 
         Only the environment a variant was generated in can say whether it
         still differs from the canonical baseline, so the plugin cannot
@@ -595,11 +597,7 @@ class Plugin:
             terminalreporter: Pytest's terminal reporter.
         """
         tags = self.collector.variant_dirs_present
-        if not (self.update_snapshots and tags) or self.config.write_variants:
-            return
-        if all(
-            r.image_status != ImageMatchStatus.GENERATED for r in self.collector.records
-        ):
+        if not tags:
             return
         # ASCII only: see the note in `_warn_if_png_ignored`.
         terminalreporter.write_line(

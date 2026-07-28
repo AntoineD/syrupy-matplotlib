@@ -176,7 +176,10 @@ class ResultCollector:
     """Root directory for result artifacts, used to compute relative image paths."""
 
     deleted_variants: list[str]
-    """Snapshot names whose variant baseline was deleted as no longer needed.
+    """Record keys whose variant baseline was deleted as no longer needed.
+
+    Keyed like `_records` — pytest node id plus `::<snapshot stem>` — so the
+    terminal summary lists deletions the same way it lists every other bucket.
 
     Session-local: variant writing refuses to run under xdist, so unlike
     `_records` this never needs merging across workers.
@@ -202,13 +205,14 @@ class ResultCollector:
         self.deleted_variants = []
         self.variant_dirs_present = set()
 
-    def record_deletion(self, snapshot_name: str) -> None:
+    def record_deletion(self, test_name: str) -> None:
         """Note that a variant baseline was deleted because it is redundant.
 
         Args:
-            snapshot_name: Record key of the snapshot whose variant went away.
+            test_name: Record key — pytest node id plus `::<snapshot stem>` —
+                of the snapshot whose variant went away.
         """
-        self.deleted_variants.append(snapshot_name)
+        self.deleted_variants.append(test_name)
 
     def note_variant_dir(self, tag: str) -> None:
         """Note that a variant directory for *tag* exists on disk.

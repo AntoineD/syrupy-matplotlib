@@ -15,6 +15,7 @@ diagnostic-artifact directory rides on `collector.results_root`.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import warnings
 from dataclasses import replace
@@ -98,6 +99,12 @@ class MplFigureExtension(SingleFileSnapshotExtension):
     """Canonical baseline path for the snapshot being read, set by
     `read_snapshot_data_from_location` when it is asked for a variant."""
 
+    _mpl_snapshot_dir: str | None = None
+    """Directory of the baseline the current assertion read, set by
+    `read_snapshot_data_from_location`. Tells `matches()` which snapshot
+    directory a rewrite happened in, so the stale-variant warning names only
+    the tags sitting next to a baseline this run actually changed."""
+
     _mpl_baseline_variant: str | None = None
     """Tag of the variant actually served to `matches()`, or `None` when the
     canonical baseline was used."""
@@ -143,7 +150,6 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         if cls._mpl_write_variants:
             return str(variant)
         if cls._mpl_update_snapshots:
-            cls._note_variant_dirs(Path(canonical).parent)
             return canonical
         return str(variant) if variant.exists() else canonical
 
@@ -169,6 +175,7 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         self._mpl_canonical_location = None
         self._mpl_baseline_variant = None
         self._mpl_canonical_missing = False
+        self._mpl_snapshot_dir = str(Path(snapshot_location).parent)
 
         data = super().read_snapshot_data_from_location(
             snapshot_location=snapshot_location,
@@ -331,8 +338,12 @@ class MplFigureExtension(SingleFileSnapshotExtension):
 
         Feeds the warning a canonical re-baseline emits: the plugin cannot
         tell whether those variants still describe their environments, having
-        never rendered under them. Only directories shaped like a variant
-        tag count — a stray `archive/` must not be named in the warning.
+        never rendered under them.
+
+        A directory only counts when it is shaped like a variant tag *and*
+        still holds a baseline — a stray `archive/` must not be named in the
+        warning, and neither must the empty `mpl-<x>.<y>/` a pin run leaves
+        behind when it deletes the last variant it contained.
 
         Args:
             snapshot_dir: The `__snapshots__/<module_stem>` directory.
@@ -349,7 +360,11 @@ class MplFigureExtension(SingleFileSnapshotExtension):
         except OSError:  # pragma: no cover
             return
         for entry in entries:
-            if entry.is_dir() and VARIANT_TAG_PATTERN.fullmatch(entry.name):
+            if (
+                entry.is_dir()
+                and VARIANT_TAG_PATTERN.fullmatch(entry.name)
+                and any(entry.glob(f"*.{cls.file_extension}"))
+            ):
                 collector.note_variant_dir(entry.name)
 
     def serialize(
@@ -449,6 +464,14 @@ class MplFigureExtension(SingleFileSnapshotExtension):
                         status=ImageMatchStatus.MATCH, tolerance=params.tolerance
                     ),
                 )
+            elif self._mpl_snapshot_dir is not None:  # pragma: no branch
+                # This baseline is about to be overwritten with something
+                # else, which is the only thing that can outdate a variant.
+                # Scanning here rather than in `get_location` keeps the
+                # warning to the directories a rewrite really touched: an
+                # unchanged snapshot, or a brand-new one in an unrelated
+                # module, must not drag another module's tags into it.
+                self._note_variant_dirs(Path(self._mpl_snapshot_dir))
             return unchanged
 
         # Bytes-equality fast path: deterministic rendering means identical
@@ -540,8 +563,16 @@ class MplFigureExtension(SingleFileSnapshotExtension):
             # holds, so any variant it used to need is now noise.
             if variant_path is not None and variant_path.exists():
                 variant_path.unlink()
-                if self._mpl_collector is not None:  # pragma: no branch
-                    self._mpl_collector.record_deletion(stem)
+                # An emptied tag directory is not "an environment with
+                # variants": left behind it would keep feeding the
+                # stale-variant warning after the last variant is gone, and
+                # a pin run that writes nothing never creates one at all.
+                with contextlib.suppress(OSError):
+                    variant_path.parent.rmdir()
+                if (
+                    self._mpl_collector is not None and self._mpl_nodeid is not None
+                ):  # pragma: no branch
+                    self._mpl_collector.record_deletion(self._record_key(stem))
             self._record(stem, canonical_result)
             return True
 
@@ -689,6 +720,21 @@ class MplFigureExtension(SingleFileSnapshotExtension):
             raise RuntimeError(msg)
         return self._mpl_params, self._mpl_last_stem
 
+    def _record_key(self, stem: str) -> str:
+        """Return the collector key identifying the current snapshot.
+
+        Every bucket the terminal summary prints is keyed this way, so a
+        stem alone would be ambiguous the moment two modules declare a test
+        of the same name — the case `_artifact_subdir` already guards.
+
+        Args:
+            stem: Filename stem of the current snapshot.
+
+        Returns:
+            The pytest node id plus `::<stem>`.
+        """
+        return f"{self._mpl_nodeid}::{stem}"
+
     def _record(self, stem: str, result: ImageResult) -> None:
         """Push a `ResultRecord` into the shared collector.
 
@@ -704,7 +750,7 @@ class MplFigureExtension(SingleFileSnapshotExtension):
             return
         collector.record(
             ResultRecord.from_image_result(
-                test_name=f"{self._mpl_nodeid}::{stem}",
+                test_name=self._record_key(stem),
                 result=result,
                 results_root=collector.results_root,
                 baseline_variant=self._mpl_baseline_variant,

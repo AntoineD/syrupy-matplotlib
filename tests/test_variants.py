@@ -286,7 +286,12 @@ def test_variant_created_leaving_canonical_intact(
 
 
 def test_stale_variant_deleted(pytester: pytest.Pytester) -> None:
-    """A variant the environment no longer needs is removed, canonical kept."""
+    """A variant the environment no longer needs is removed, canonical kept.
+
+    The deletion is listed by record key, like every other bucket: a bare
+    stem would be ambiguous the moment two modules declare a test of the
+    same name.
+    """
     make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
     canonical_bytes = canonical_path(pytester).read_bytes()
     # This environment now renders what the canonical baseline holds.
@@ -298,9 +303,114 @@ def test_stale_variant_deleted(pytester: pytest.Pytester) -> None:
     result.stdout.fnmatch_lines([
         "*1 variant deleted*",
         "*Deleted variant images (1):*",
+        "    test_plots.py::test_fig::test_fig",
     ])
     assert not variant_path(pytester).exists()
     assert canonical_path(pytester).read_bytes() == canonical_bytes
+
+
+def test_emptied_variant_directory_is_removed(pytester: pytest.Pytester) -> None:
+    """Deleting the last variant takes its tag directory with it.
+
+    An empty `mpl-<x>.<y>/` is not "an environment with variants", and a pin
+    run that writes nothing never creates one — leaving it behind would make
+    the next canonical re-baseline warn about variants that no longer exist.
+    """
+    make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
+    pytester.makepyfile(test_plots=PLOT_A)
+
+    pytester.runpytest("--snapshot-update", PIN).assert_outcomes(passed=1)
+
+    assert not variant_path(pytester).parent.exists()
+
+    pytester.makepyfile(test_plots=PLOT_C)
+    result = pytester.runpytest("--snapshot-update")
+
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*may now be stale*")
+
+
+def test_empty_variant_directory_is_not_stale(pytester: pytest.Pytester) -> None:
+    """A tag directory holding no baseline is not warned about.
+
+    Guards the check independently of the deletion path above: the directory
+    can also be emptied by hand or by a `git` checkout.
+    """
+    pytester.makepyfile(test_plots=PLOT_A)
+    pytester.runpytest("--snapshot-update")
+    variant_path(pytester).parent.mkdir()
+    pytester.makepyfile(test_plots=PLOT_B)
+
+    result = pytester.runpytest("--snapshot-update")
+
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*may now be stale*")
+
+
+def test_stale_warning_scoped_to_the_rewritten_directory(
+    pytester: pytest.Pytester,
+) -> None:
+    """Rewriting one module does not warn about another module's variants.
+
+    The tags are collected from the snapshot directory being overwritten, so
+    a module with no variants next to it stays silent no matter what sits in
+    a sibling module's snapshot directory.
+    """
+    make_variant(pytester, canonical=PLOT_A, variant=PLOT_B)
+    # Back to the canonical render, so the updates below rewrite nothing here.
+    pytester.makepyfile(test_plots=PLOT_A)
+    pytester.makepyfile(test_other=PLOT_A)
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=2)
+    # Only the module without variants renders something else from here on.
+    pytester.makepyfile(test_other=PLOT_C)
+
+    result = pytester.runpytest("--snapshot-update")
+
+    result.assert_outcomes(passed=2)
+    result.stdout.fnmatch_lines(["Images: 1 OK, 0 failed, 1 created"])
+    result.stdout.no_fnmatch_line("*may now be stale*")
+    assert variant_path(pytester).exists()
+
+
+def test_pin_run_clears_orphaned_variants(pytester: pytest.Pytester) -> None:
+    """A variant whose test is gone is dropped by the next pin run.
+
+    Comparison runs never report it — each run accounts only for the
+    baselines it maintains — so this is the one command that collects it.
+    """
+    two_tests = textwrap.dedent("""\
+        import matplotlib.pyplot as plt
+        import pytest
+
+        @pytest.mark.parametrize("n", [1, 2])
+        def test_fig(snapshot_matplotlib, n):
+            fig, ax = plt.subplots()
+            ax.plot([1, 2, 3]) if n == 1 else ax.scatter([1, 2], [2, 1])
+            assert fig == snapshot_matplotlib
+    """)
+    pytester.makepyfile(test_plots=two_tests)
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=2)
+    pytester.makepyfile(
+        test_plots=two_tests.replace(
+            "ax.scatter([1, 2], [2, 1])", "ax.bar([1, 2], [2, 1])"
+        )
+    )
+    pytester.runpytest("--snapshot-update", PIN).assert_outcomes(passed=2)
+    orphan = variant_path(pytester).parent / "test_fig[2].png"
+    assert orphan.exists()
+    # Retire the second parametrization.
+    pytester.makepyfile(
+        test_plots=two_tests.replace("[1, 2]", "[1]", 1).replace(
+            "ax.plot([1, 2, 3]) if n == 1 else ax.scatter([1, 2], [2, 1])",
+            "ax.plot([1, 2, 3])",
+        )
+    )
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=1)
+    assert orphan.exists(), "a canonical re-baseline must leave variants alone"
+
+    pytester.runpytest("--snapshot-update", PIN).assert_outcomes(passed=1)
+
+    assert not orphan.exists()
 
 
 def test_matching_canonical_writes_nothing(pytester: pytest.Pytester) -> None:

@@ -455,7 +455,15 @@ missing, step 2 fails and tells you to run step 1 first.
   matplotlib version and nothing else.
 - **Re-baselining canonical can outdate the variants.** Only the environment
   a variant came from can tell, so the plugin warns and leaves them alone;
-  those jobs will fail until you re-run step 2 there.
+  those jobs will fail until you re-run step 2 there. That includes the
+  environment you are sitting in: if it owns a variant for the snapshot you
+  just re-baselined, that variant still shadows the new canonical image and
+  your next plain `pytest` fails until step 2 runs.
+- **Deleting a test leaves its variants behind.** `--snapshot-update` removes
+  the orphaned canonical baseline, but each run only accounts for the
+  baselines it maintains, so no comparison run reports the orphaned variants.
+  A step-2 pin run in an environment does clear its own; otherwise remove
+  them by hand.
 - **Variant generation refuses `-n`.** Reading variants is xdist-safe (that
   is what CI does), but a pin run deletes redundant variants and reports
   the deletions, which is per-worker bookkeeping — the flag errors out
