@@ -455,6 +455,30 @@ def test_pin_run_leaves_no_stray_artifacts(pytester: pytest.Pytester) -> None:
     assert not (pytester.path / "figure-report").exists()
 
 
+def test_pin_over_a_resized_canonical_writes_a_variant(
+    pytester: pytest.Pytester,
+) -> None:
+    """A figsize change makes the canonical comparison a shape mismatch.
+
+    `compare_images` raises instead of returning an RMS there, so the result
+    carries no diff image. The pin run must still read it as "differs", write
+    the variant, and clean up the partial artifact set behind it.
+    """
+    pytester.makepyfile(
+        test_plots=PLOT_A.replace("plt.subplots()", "plt.subplots(figsize=(3, 3))")
+    )
+    pytester.runpytest("--snapshot-update").assert_outcomes(passed=1)
+    pytester.makepyfile(
+        test_plots=PLOT_A.replace("plt.subplots()", "plt.subplots(figsize=(5, 4))")
+    )
+
+    result = pytester.runpytest("--snapshot-update", PIN)
+
+    result.assert_outcomes(passed=1)
+    assert variant_path(pytester).exists()
+    assert not (pytester.path / "figure-report").exists()
+
+
 def test_pin_report_shows_the_canonical_comparison(
     pytester: pytest.Pytester,
 ) -> None:
