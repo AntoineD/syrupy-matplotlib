@@ -188,8 +188,10 @@ class ResultCollector:
     variant_dirs_present: set[str]
     """Variant tags seen on disk while rewriting canonical baselines.
 
-    Feeds the "your variants may now be stale" warning. Best-effort under
-    xdist, where it stays in the worker that saw the directory.
+    Feeds the "your variants may now be stale" warning. Not serialized into
+    the xdist result fragments, so under `-n` the tags stay in the workers
+    and the warning never fires — a documented limitation of re-baselining
+    under xdist.
     """
 
     _records: dict[str, ResultRecord]

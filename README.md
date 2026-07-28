@@ -455,7 +455,10 @@ missing, step 2 fails and tells you to run step 1 first.
   matplotlib version and nothing else.
 - **Re-baselining canonical can outdate the variants.** Only the environment
   a variant came from can tell, so the plugin warns and leaves them alone;
-  those jobs will fail until you re-run step 2 there. That includes the
+  those jobs will fail until you re-run step 2 there. The warning is
+  collected in the xdist workers and never reaches the controller, so a
+  `-n` re-baseline stays silent — one more reason to update without xdist
+  (see below). That includes the
   environment you are sitting in: if it owns a variant for the snapshot you
   just re-baselined, that variant still shadows the new canonical image and
   your next plain `pytest` fails until step 2 runs.
@@ -475,7 +478,8 @@ missing, step 2 fails and tells you to run step 1 first.
 Works with `pytest-xdist` (`-n auto`). Workers write per-worker result
 fragments; the controller merges them at session end before generating
 reports. Syrupy's own unused-snapshot detection is limited under xdist with
-`--snapshot-update` — regenerate baselines without xdist when possible.
+`--snapshot-update`, and the stale-variant warning stays in the workers —
+regenerate baselines without xdist when possible.
 
 Fragment merge and report generation read the worker-written files from a
 single `figure-report/` directory, so xdist support assumes a **shared (or

@@ -25,7 +25,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a snapshot that has no canonical baseline yet. It also refuses to run
   under pytest-xdist (`-n`); comparison runs remain xdist-safe. Plain
   `--snapshot-update` keeps writing canonical baselines and warns when it
-  rewrote baselines that existing variants may no longer match.
+  rewrote baselines that existing variants may no longer match (the warning
+  does not survive pytest-xdist — re-baseline without `-n`).
 
 - The JSON report records which baseline each comparison used
   (`baseline_variant`), the HTML reports label it, and the terminal summary

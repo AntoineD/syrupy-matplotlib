@@ -590,8 +590,10 @@ class Plugin:
         refresh or verify them here — the other environments' runs will fail,
         which is the signal to regenerate.
 
-        Best-effort under xdist: the directories are seen by the workers, and
-        this runs on the controller.
+        Silent under xdist: the directories are seen by the workers, this
+        runs on the controller, and the tags are not part of the result
+        fragments — a documented limitation (the README tells users to
+        re-baseline without `-n`), not an oversight.
 
         Args:
             terminalreporter: Pytest's terminal reporter.
