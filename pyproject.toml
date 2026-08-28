@@ -37,7 +37,7 @@ dependencies = [
     # syrupy 5.1 already requires pytest>=8.0.0, so a lower floor here is
     # unreachable — min-deps resolves 8.0.0 no matter what this says.
     "pytest>=8",
-    "syrupy>=5.1,<6",
+    "syrupy>=5.1,<7",
 ]
 
 [project.urls]
