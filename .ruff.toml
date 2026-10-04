@@ -1,0 +1,74 @@
+fix = true
+unsafe-fixes = true
+preview = true
+target-version = "py310"
+src = ["src"]
+
+[lint]
+future-annotations = true
+task-tags = ["TODO"]
+ignore = ["any-type"]
+
+select = [
+    "A",
+    "ANN",
+    "ASYNC",
+    "B",
+    "BLE",
+    "C",
+    "C4",
+    "D",
+    "DOC",
+    "E",
+    "EM",
+    "F",
+    "FA",
+    #    "FBT",
+    "FLY",
+    "FURB",
+    "G",
+    "I",
+    "ISC",
+    "INP",
+    "LOG",
+    "Q",
+    "N",
+    "NPY",
+    #    "PL",
+    #    "PD",
+    "PT",
+    "PIE",
+    "PGH",
+    "PTH",
+    "PYI",
+    "PERF",
+    "RET",
+    "RSE",
+    "RUF",
+    "S",
+    "SIM",
+    #    "SLF",
+    "SLOT",
+    "T",
+    "T10",
+    "T20",
+    "TCH",
+    "TRY",
+    "W",
+    "UP",
+    "YTT",
+]
+
+[lint.isort]
+force-single-line = true
+required-imports = ["from __future__ import annotations"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.per-file-ignores]
+"tests/*" = ["missing-type-function-argument", "missing-return-type-undocumented-public-function", "missing-return-type-private-function", "D", "DOC", "implicit-namespace-package", "float-equality-comparison", "S"]
+
+[format]
+docstring-code-format = true
+docstring-code-line-length = 75

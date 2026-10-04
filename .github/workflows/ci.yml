@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      # --no-fix: .ruff.toml sets `fix = true`, so a bare `ruff check` repairs
+      # the checkout in place and exits 0, hiding every fixable violation.
+      - run: uv run ruff check --no-fix .
+      - run: uv run ruff format --check .
+
+  type-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - run: uv run ty check src/syrupy_matplotlib/
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev --python ${{ matrix.python-version }}
+      - run: uv run pytest --cov --cov-report=xml --cov-report=term
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.xml
+          flags: py${{ matrix.python-version }}
+          name: py${{ matrix.python-version }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  # The package claims "OS Independent" and baseline filenames embed
+  # parametrize ids, whose sanitization differs off Linux. One Python is
+  # enough to catch a path or filename problem; the version matrix is the
+  # ubuntu job's business.
+  test-os:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev --python 3.13
+      # No --cov here: .coveragerc resolves data_file through ${PWD}, which
+      # the Windows runner's shell does not set.
+      - run: uv run pytest
+
+  # Proves the dependency floors in pyproject.toml are actually installable
+  # and green, instead of being an untested claim.
+  min-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: >
+          uv run --isolated --python 3.10 --with 'numpy==1.26'
+          --resolution lowest-direct pytest
