@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.rumdl_cache/
+figure-report/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.claude/settings.local.json

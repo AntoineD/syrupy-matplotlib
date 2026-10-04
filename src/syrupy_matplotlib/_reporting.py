@@ -1,0 +1,288 @@
+"""Test result data model and collection.
+
+`ResultRecord` is the single source of truth for reporting — both JSON
+and HTML reports are derived from it.  `ResultCollector` accumulates records
+during a session and supports xdist serialization.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from typing import Any
+
+from ._types import ImageMatchStatus
+from ._types import is_passing
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from ._types import ImageResult
+
+
+@dataclass(frozen=True, slots=True)
+class ResultRecord:
+    """Complete result for one test item — immutable once handed to the collector."""
+
+    test_name: str
+    """Pytest node id plus `::<snapshot stem>` — one record per snapshot,
+    so a test asserting several figures yields several records."""
+
+    image_status: str
+    """`ImageMatchStatus` value. Every record describes a comparison that ran,
+    so there is no "pending" state."""
+
+    rms: float | None = None
+    """RMS pixel difference, or `None`."""
+
+    tolerance: float | None = None
+    """RMS tolerance used, or `None`."""
+
+    result_image: str | None = None
+    """Relative path to the result image from the results root, or `None`."""
+
+    baseline_image: str | None = None
+    """Relative path to the baseline image, or `None`."""
+
+    diff_image: str | None = None
+    """Relative path to the diff image, or `None`."""
+
+    error_message: str | None = None
+    """Human-readable failure description, or `None`."""
+
+    baseline_variant: str | None = None
+    """Variant tag whose baseline was compared against, or `None` when the
+    canonical baseline was used. Lets a report reader tell the two apart —
+    `baseline_image` points at the copy under the report directory, which
+    looks the same either way."""
+
+    @property
+    def passed(self) -> bool:
+        """Whether this record counts as a passing test outcome.
+
+        Returns:
+            `True` when `image_status` is `match` or `generated`.
+        """
+        return is_passing(ImageMatchStatus(self.image_status))
+
+    @classmethod
+    def from_image_result(
+        cls,
+        test_name: str,
+        result: ImageResult,
+        results_root: Path | None = None,
+        baseline_variant: str | None = None,
+    ) -> ResultRecord:
+        r"""Build a `ResultRecord` from an `ImageResult`.
+
+        Image paths are stored relative to *results_root* when provided so
+        HTML reports can link to them portably. They always use forward
+        slashes: the strings end up in URLs and JSON, where a Windows `\\`
+        is a broken link on one platform and an escape character on the
+        other.
+
+        Args:
+            test_name: Record key — pytest node id plus `::<snapshot stem>`.
+            result: Immutable result from the comparison engine.
+            results_root: Root directory for result artifacts, used to compute
+                relative paths.  Pass `None` to store absolute paths.
+            baseline_variant: Variant tag whose baseline was used, or `None`
+                for the canonical one.
+
+        Returns:
+            A populated `ResultRecord`.
+        """
+
+        def _make_relpath(p: Path | None) -> str | None:
+            if p is None:
+                return None
+            if results_root is None:
+                return p.as_posix()
+            try:
+                return p.relative_to(results_root).as_posix()
+            except ValueError:
+                return p.as_posix()
+
+        return cls(
+            test_name=test_name,
+            image_status=result.status.value,
+            rms=result.rms,
+            tolerance=result.tolerance,
+            result_image=_make_relpath(result.actual_path),
+            baseline_image=_make_relpath(result.baseline_path),
+            diff_image=_make_relpath(result.diff_path),
+            error_message=result.error_message,
+            baseline_variant=baseline_variant,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable dictionary of all fields.
+
+        Returns:
+            Dictionary suitable for `json.dump()`.
+        """
+        d = asdict(self)
+        d["passed"] = self.passed
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class RunSummary:
+    """Aggregate statistics for a test run."""
+
+    total: int = 0
+    """Total number of records collected."""
+
+    passed: int = 0
+    """Number of passing tests."""
+
+    failed: int = 0
+    """Number of failing tests."""
+
+    @classmethod
+    def compute(cls, records: list[ResultRecord]) -> RunSummary:
+        """Compute a `RunSummary` from a list of `ResultRecord` objects.
+
+        Every record is classified, so `total == passed + failed` always holds.
+
+        Args:
+            records: All records collected during the session.
+
+        Returns:
+            Populated `RunSummary`.
+        """
+        passed = sum(1 for r in records if r.passed)
+        return cls(total=len(records), passed=passed, failed=len(records) - passed)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable dictionary of all fields.
+
+        Returns:
+            Dictionary suitable for `json.dump()`.
+        """
+        return asdict(self)
+
+
+class ResultCollector:
+    """Accumulates `ResultRecord` objects during a pytest session.
+
+    Supports xdist by serializing worker results to JSON and merging them on
+    the controller.
+    """
+
+    results_root: Path | None
+    """Root directory for result artifacts, used to compute relative image paths."""
+
+    deleted_variants: list[str]
+    """Record keys whose variant baseline was deleted as no longer needed.
+
+    Keyed like `_records` — pytest node id plus `::<snapshot stem>` — so the
+    terminal summary lists deletions the same way it lists every other bucket.
+
+    Session-local: variant writing refuses to run under xdist, so unlike
+    `_records` this never needs merging across workers.
+    """
+
+    variant_dirs_present: set[str]
+    """Variant tags seen on disk while rewriting canonical baselines.
+
+    Feeds the "your variants may now be stale" warning. Not serialized into
+    the xdist result fragments, so under `-n` the tags stay in the workers
+    and the warning never fires — a documented limitation of re-baselining
+    under xdist.
+    """
+
+    _records: dict[str, ResultRecord]
+    """Internal mapping from node id to result record."""
+
+    def __init__(self, results_root: Path | None = None) -> None:
+        """Args:
+        results_root: Root directory for result artifacts.  Pass `None`
+            when no report directory is configured.
+        """  # ruff: ignore[missing-blank-line-after-summary]
+        self._records = {}
+        self.results_root = results_root
+        self.deleted_variants = []
+        self.variant_dirs_present = set()
+
+    def record_deletion(self, test_name: str) -> None:
+        """Note that a variant baseline was deleted because it is redundant.
+
+        Args:
+            test_name: Record key — pytest node id plus `::<snapshot stem>` —
+                of the snapshot whose variant went away.
+        """
+        self.deleted_variants.append(test_name)
+
+    def note_variant_dir(self, tag: str) -> None:
+        """Note that a variant directory for *tag* exists on disk.
+
+        Args:
+            tag: Variant tag named by the directory.
+        """
+        self.variant_dirs_present.add(tag)
+
+    def record(self, r: ResultRecord) -> None:
+        """Add or replace the record for a test.
+
+        Args:
+            r: The `ResultRecord` to store, keyed by `r.test_name`.
+        """
+        self._records[r.test_name] = r
+
+    @property
+    def records(self) -> list[ResultRecord]:
+        """All collected records in insertion order.
+
+        Returns:
+            List of `ResultRecord` objects.
+        """
+        return list(self._records.values())
+
+    def compute_summary(self) -> RunSummary:
+        """Compute aggregate statistics from all collected records.
+
+        Returns:
+            A `RunSummary` over the current set of records.
+        """
+        return RunSummary.compute(self.records)
+
+    def to_serializable(self) -> dict[str, Any]:
+        """Return a JSON-serializable representation of all records.
+
+        Returns:
+            Mapping of node id to record dictionary.
+        """
+        return {name: rec.to_dict() for name, rec in self._records.items()}
+
+    def merge_serialized(self, data: dict[str, Any]) -> None:
+        """Merge results from a worker JSON blob (xdist).
+
+        The `passed` key in each dict is recomputed from `image_status` on
+        read, so it's stripped before reconstruction.
+
+        Args:
+            data: Dictionary produced by a worker's `to_serializable()`.
+        """
+        for name, rec_dict in data.items():
+            payload = {k: v for k, v in rec_dict.items() if k != "passed"}
+            self._records[name] = ResultRecord(**payload)
+
+    def save_worker_json(self, path: Path) -> None:
+        """Serialize all records to a JSON file (used by xdist workers).
+
+        Written to a sibling temp file and renamed into place, so the
+        controller can never observe a half-written fragment — a worker
+        killed mid-write (OOM, timeout) would otherwise feed truncated JSON
+        into the session-end merge.
+
+        Args:
+            path: Destination path; parent directories are created as needed.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        with tmp.open("w") as f:
+            json.dump(self.to_serializable(), f, indent=2)
+        tmp.replace(path)
