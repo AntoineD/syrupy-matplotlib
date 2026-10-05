@@ -94,8 +94,7 @@ def test_merge_worker_fragments_empty(tmp_path: Path) -> None:
 def test_merge_worker_fragments_skips_unreadable_fragment(tmp_path: Path) -> None:
     """A truncated fragment is discarded with a warning, not an exception.
 
-    A worker killed hard enough to beat the atomic write leaves broken JSON;
-    raising here would surface as an INTERNALERROR at session finish and lose
+    Raising here would surface as an INTERNALERROR at session finish and lose
     every worker's results instead of one's.
     """
     uid = "u1"
@@ -111,6 +110,25 @@ def test_merge_worker_fragments_skips_unreadable_fragment(tmp_path: Path) -> Non
     assert set(merged) == {"a"}
     # Both fragments are gone — the corrupt one must not linger and warn again.
     assert not any(tmp_path.glob(f"_results-{uid}-*.json"))
+
+
+def test_merge_worker_fragments_warns_on_interrupted_write(tmp_path: Path) -> None:
+    """A worker killed between writing and renaming its fragment is reported.
+
+    Only the `.json.tmp` exists then, which the `*.json` glob cannot match;
+    without its own pass that worker's results would vanish silently.
+    """
+    uid = "u1"
+    (tmp_path / f"_results-{uid}-gw0.json").write_text(
+        json.dumps({"a": {"test_name": "a"}})
+    )
+    (tmp_path / f"_results-{uid}-gw1.json.tmp").write_text('{"b": {"test_na')
+
+    with pytest.warns(UserWarning, match="incomplete xdist result fragment"):
+        merged = merge_worker_fragments(tmp_path, uid)
+
+    assert set(merged) == {"a"}
+    assert not any(tmp_path.glob(f"_results-{uid}-*"))
 
 
 def test_setup_session_controller_has_unique_uid() -> None:

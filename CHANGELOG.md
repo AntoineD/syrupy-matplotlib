@@ -14,6 +14,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   at the newest tested minor rather than the major, since the plugin reads
   syrupy private API that a minor release may reshape.
 
+### Fixed
+
+- Under pytest-xdist, a worker killed while saving its results is now
+  reported with a warning instead of having its comparisons vanish from the
+  summary and reports silently.
+
 ## [0.3.0] - 2026-07-28
 
 ### Added

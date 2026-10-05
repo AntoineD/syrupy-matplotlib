@@ -93,10 +93,14 @@ def get_worker_id() -> str:
 def merge_worker_fragments(results_dir: Path, uid: str) -> dict[str, Any]:
     """Read and merge all per-worker result fragments, then delete them.
 
-    A fragment that cannot be parsed — a worker killed hard enough to leave
-    no file rename behind, a disk hiccup — is discarded with a warning
-    instead of aborting: one worker's missing records beat losing the whole
-    session's summary and reports to an INTERNALERROR at session finish.
+    A fragment that cannot be read or parsed (a disk hiccup) is discarded
+    with a warning instead of aborting: one worker's missing records beat
+    losing the whole session's summary and reports to an INTERNALERROR at
+    session finish. So is the `.json.tmp` a worker killed mid-write leaves
+    behind — `ResultCollector.save_worker_json` renames into place, so that
+    temp file is the only trace of the worker's results. Workers finish
+    their session before the controller merges, so a temp file still
+    present here is never one being written.
 
     Args:
         results_dir: Directory containing the fragment files.
@@ -117,6 +121,16 @@ def merge_worker_fragments(results_dir: Path, uid: str) -> dict[str, Any]:
                 "missing from the summary and reports.",
                 stacklevel=2,
             )
+        with contextlib.suppress(OSError):
+            path.unlink()
+    for path in sorted(results_dir.glob(f"_results-{uid}-*.json.tmp")):
+        warnings.warn(
+            f"syrupy-matplotlib: discarding incomplete xdist result "
+            f"fragment {path.name}; that worker was killed while saving its "
+            "results, and its comparisons are missing from the summary and "
+            "reports.",
+            stacklevel=2,
+        )
         with contextlib.suppress(OSError):
             path.unlink()
     return merged
