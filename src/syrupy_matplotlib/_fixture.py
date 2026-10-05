@@ -193,7 +193,7 @@ def _describe_failure(assertion: MplSnapshotAssertion, ext: MplFigureExtension) 
     read it off the execution record.
 
     `_execution_results` and `_executions` are syrupy private API, covered by
-    the same `syrupy>=5.1,<6` pin that `_assertion._assert` relies on.
+    the same `syrupy>=5.1,<6.2` pin that `_assertion._assert` relies on.
 
     Args:
         assertion: The fixture's assertion object.

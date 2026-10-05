@@ -1240,7 +1240,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3" },
     { name = "matplotlib", specifier = ">=3.5" },
     { name = "pytest", specifier = ">=8" },
-    { name = "syrupy", specifier = ">=5.1,<7" },
+    { name = "syrupy", specifier = ">=5.1,<6.2" },
 ]
 
 [package.metadata.requires-dev]
