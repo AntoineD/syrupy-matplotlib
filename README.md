@@ -492,17 +492,20 @@ missing, step 2 fails and tells you to run step 1 first.
 
 ## xdist support
 
-Works with `pytest-xdist` (`-n auto`). Workers write per-worker result
-fragments; the controller merges them at session end before generating
-reports. Syrupy's own unused-snapshot detection is limited under xdist with
-`--snapshot-update`, and the stale-variant warning stays in the workers —
-regenerate baselines without xdist when possible.
+Works with `pytest-xdist` (`-n auto`). Each worker hands its comparison
+results to the controller through xdist when it finishes, and the controller
+merges them before generating reports. A worker that dies first — a crash,
+out of memory, a timeout — takes its results with it; the plugin warns about
+each such worker instead of reporting a short count silently. Syrupy's own
+unused-snapshot detection is limited under xdist with `--snapshot-update`,
+and the stale-variant warning stays in the workers — regenerate baselines
+without xdist when possible.
 
-Fragment merge and report generation read the worker-written files from a
-single `figure-report/` directory, so xdist support assumes a **shared (or
-local) filesystem** — the common single-host `-n auto` case. Distributed runs
-that place workers on separate filesystems (e.g. `--tx ssh=...`) won't surface
-their fragments or image artifacts to the controller.
+The comparison images are written by the workers into a single
+`figure-report/` directory, so the reports assume a **shared (or local)
+filesystem** — the common single-host `-n auto` case. Distributed runs that
+place workers on separate filesystems (e.g. `--tx ssh=...`) still count those
+workers' comparisons, but their images stay on the worker hosts.
 
 ## Custom fixture wrappers
 

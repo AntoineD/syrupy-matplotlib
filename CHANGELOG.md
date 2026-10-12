@@ -13,12 +13,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Support syrupy 6.1. The syrupy requirement is now `>=5.1,<6.2`, capped
   at the newest tested minor rather than the major, since the plugin reads
   syrupy private API that a minor release may reshape.
+- Under pytest-xdist, workers hand their results to the controller through
+  xdist instead of `_results-*.json` files in the report directory. Workers
+  on another filesystem (`--tx ssh=...`) now count in the summary and
+  reports too; their images still stay on the worker hosts.
 
 ### Fixed
 
-- Under pytest-xdist, a worker killed while saving its results is now
-  reported with a warning instead of having its comparisons vanish from the
-  summary and reports silently.
+- Under pytest-xdist, a worker that dies before its session finishes — a
+  crash, out of memory, a timeout — is now reported with a warning instead
+  of having its comparisons vanish from the summary and reports silently.
 
 ## [0.3.0] - 2026-07-28
 

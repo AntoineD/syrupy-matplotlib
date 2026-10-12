@@ -1,79 +1,81 @@
 """pytest-xdist coordination for syrupy-matplotlib.
 
-- The controller generates a unique session UID and forwards it to workers
-  via `pytest_configure_node`.
-- Each worker writes a JSON fragment of its `ResultCollector` on session
-  end. The controller merges all fragments before generating reports.
+- Each worker publishes its `ResultCollector` records in
+  `config.workeroutput` when its session finishes; xdist ships that mapping
+  to the controller.
+- The controller merges each worker's records as the worker goes down,
+  before its own session finishes and writes the reports, and warns about
+  every worker that went down without publishing them.
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
-import uuid
 import warnings
 from typing import TYPE_CHECKING
 from typing import Any
 
+import pytest
+
 if TYPE_CHECKING:
-    from pathlib import Path
-
-    import pytest
+    from ._reporting import ResultCollector
 
 
-_UID_ATTR = "_syrupy_matplotlib_uid"
+_WORKEROUTPUT_KEY = "syrupy_matplotlib_records"
+"""Key of a worker's records in `config.workeroutput`."""
 
 
 class XdistCoordinator:
-    """Plugin registered on the xdist controller to propagate the session UID.
+    """Plugin registered on the xdist controller to gather the workers' records."""
 
-    The UID is sent to each worker node via `workerinput` so workers can
-    name their fragment files in a way that won't collide with other
-    sessions running in parallel.
-    """
+    _collector: ResultCollector
+    """The controller's collector, which the workers' records are merged into."""
 
-    def pytest_configure_node(self, node: object) -> None:
-        """Populate `workerinput` before the worker process starts.
+    _lost_workers: list[str]
+    """Ids of the workers that went down without publishing their records."""
+
+    def __init__(self, collector: ResultCollector) -> None:
+        """Args:
+        collector: The controller's collector.
+        """  # ruff: ignore[missing-blank-line-after-summary]
+        self._collector = collector
+        self._lost_workers = []
+
+    def pytest_testnodedown(self, node: Any) -> None:
+        """Merge a worker's records, or note that it died without publishing them.
+
+        xdist calls this for every worker that goes down, cleanly or not, so
+        a worker that crashed, ran out of memory or was killed by a timeout
+        lands here too, with nothing published. Whether the records are
+        there decides, not the hook's `error` argument: a worker interrupted
+        by Ctrl-C finishes cleanly, then goes down a second time with an
+        error.
 
         Args:
-            node: The xdist `WorkerController` node.
+            node: The xdist `WorkerController` that went down.
         """
-        node.workerinput[  # ty: ignore[unresolved-attribute]
-            "syrupy_matplotlib_uid"
-        ] = getattr(
-            node.config,  # ty: ignore[unresolved-attribute]
-            _UID_ATTR,
-            "main",
-        )
+        payload = getattr(node, "workeroutput", {}).get(_WORKEROUTPUT_KEY)
+        if payload is None:
+            self._lost_workers.append(node.gateway.id)
+        else:
+            self._collector.merge_serialized(json.loads(payload))
 
+    @pytest.hookimpl(trylast=True)
+    def pytest_sessionfinish(self) -> None:
+        """Warn about each worker whose records never arrived.
 
-def setup_session(config: pytest.Config) -> None:
-    """Initialise xdist state during `pytest_sessionstart`.
-
-    On the controller, a UUID is generated. On a worker, the UUID is read
-    back from `workerinput`.
-
-    Args:
-        config: The pytest `Config` for the current process.
-    """
-    if _is_worker(config):
-        workerinput: dict[str, str] = config.workerinput  # ty: ignore[unresolved-attribute]
-        setattr(config, _UID_ATTR, workerinput["syrupy_matplotlib_uid"])
-    else:
-        setattr(config, _UID_ATTR, uuid.uuid4().hex)
-
-
-def get_uid(config: pytest.Config) -> str:
-    """Return the session UID stored on *config*.
-
-    Args:
-        config: The pytest `Config` for the current process.
-
-    Returns:
-        Hex UUID string, or `"main"` when xdist is not active.
-    """
-    return str(getattr(config, _UID_ATTR, "main"))
+        Not raised from `pytest_testnodedown`: xdist calls it from the test
+        loop, where pytest captures no warnings, so the warning would miss
+        the warnings summary. `trylast` lets the reports be written first,
+        in case `-W error` turns the warning into an exception.
+        """
+        for worker_id in self._lost_workers:
+            warnings.warn(
+                f"syrupy-matplotlib: xdist worker {worker_id} died before "
+                "handing over its results; any comparisons it ran are missing "
+                "from the summary and reports.",
+                stacklevel=1,
+            )
 
 
 def _is_worker(config: pytest.Config) -> bool:
@@ -81,56 +83,20 @@ def _is_worker(config: pytest.Config) -> bool:
     return hasattr(config, "workerinput")
 
 
-def get_worker_id() -> str:
-    """Return the xdist worker id for the current process.
+def publish_worker_results(config: pytest.Config, collector: ResultCollector) -> None:
+    """Hand this worker's records to the controller.
 
-    Returns:
-        Worker id string (e.g. `"gw0"`), or `"main"` outside xdist.
-    """
-    return os.environ.get("PYTEST_XDIST_WORKER", "main")
+    xdist ships `config.workeroutput` once every `pytest_sessionfinish`
+    implementation has run, so this must be called from one. Called even
+    with no records, since the controller takes a worker that published
+    nothing for one that died.
 
-
-def merge_worker_fragments(results_dir: Path, uid: str) -> dict[str, Any]:
-    """Read and merge all per-worker result fragments, then delete them.
-
-    A fragment that cannot be read or parsed (a disk hiccup) is discarded
-    with a warning instead of aborting: one worker's missing records beat
-    losing the whole session's summary and reports to an INTERNALERROR at
-    session finish. So is the `.json.tmp` a worker killed mid-write leaves
-    behind — `ResultCollector.save_worker_json` renames into place, so that
-    temp file is the only trace of the worker's results. Workers finish
-    their session before the controller merges, so a temp file still
-    present here is never one being written.
+    The records go as JSON text: execnet serializes only exact builtin
+    types, while `to_serializable` promises JSON and nothing more.
 
     Args:
-        results_dir: Directory containing the fragment files.
-        uid: Session UID used to glob the correct files.
-
-    Returns:
-        Merged mapping from record key to record dictionary.
+        config: The worker's pytest `Config`.
+        collector: The worker's collector.
     """
-    merged: dict[str, Any] = {}
-    for path in sorted(results_dir.glob(f"_results-{uid}-*.json")):
-        try:
-            with path.open() as f:
-                merged.update(json.load(f))
-        except (OSError, json.JSONDecodeError):
-            warnings.warn(
-                f"syrupy-matplotlib: discarding unreadable xdist result "
-                f"fragment {path.name}; that worker's comparisons are "
-                "missing from the summary and reports.",
-                stacklevel=2,
-            )
-        with contextlib.suppress(OSError):
-            path.unlink()
-    for path in sorted(results_dir.glob(f"_results-{uid}-*.json.tmp")):
-        warnings.warn(
-            f"syrupy-matplotlib: discarding incomplete xdist result "
-            f"fragment {path.name}; that worker was killed while saving its "
-            "results, and its comparisons are missing from the summary and "
-            "reports.",
-            stacklevel=2,
-        )
-        with contextlib.suppress(OSError):
-            path.unlink()
-    return merged
+    workeroutput: dict[str, Any] = config.workeroutput  # ty: ignore[unresolved-attribute]
+    workeroutput[_WORKEROUTPUT_KEY] = json.dumps(collector.to_serializable())

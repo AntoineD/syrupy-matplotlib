@@ -5,8 +5,8 @@ The plugin owns:
 - CLI/INI registration for the `--snapshot-matplotlib-*` options.
 - A `Plugin` singleton exposing `config`, `collector`, and `diff_dir` to the
   `snapshot_matplotlib` fixture.
-- Session-finish reporting (HTML/JSON) and xdist fragment merge for the
-  collector.
+- Session-finish reporting (HTML/JSON), which under xdist covers the records
+  the workers hand to the controller (`_xdist`).
 - Pruning variant baselines that no canonical baseline backs, which syrupy's
   unused-snapshot cleanup cannot see (`_prune_orphaned_variants`).
 """
@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import contextlib
 import sys
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -50,11 +49,6 @@ __all__ = ["snapshot_matplotlib"]
 AUTO_STATE_KEY: pytest.StashKey[
     tuple[MplSnapshotAssertion, weakref.WeakSet[Figure]]
 ] = pytest.StashKey()
-
-#: Age past which an unmerged xdist result fragment is considered orphaned.
-#: Generous on purpose — sweeping a live session's fragment loses its results
-#: silently, while keeping a dead one an hour longer costs a few kilobytes.
-_STALE_FRAGMENT_AGE_S = 3600.0
 
 #: Top-level files the report generators write. Cleared at session start so a
 #: fixed suite's green run cannot leave the previous run's report standing.
@@ -198,33 +192,22 @@ def pytest_configure(config: pytest.Config) -> None:
         raise pytest.UsageError(str(e)) from e
     diff_dir = mpl_config.report_dir
 
-    # The session UID has to exist before xdist calls `pytest_configure_node`,
-    # which it does from `DSession.pytest_sessionstart`. Generating it in our
-    # own `pytest_sessionstart` happens to work only while xdist keeps that
-    # hookimpl `trylast`; were it ever `tryfirst`, workers would fall back to
-    # the `"main"` UID while the controller merged on the real one, and every
-    # worker's results would vanish from the summary and the reports without
-    # a word. `pytest_configure` runs on both sides — with `workerinput`
-    # already attached on a worker — before any of that, so no hook order
-    # can break it.
     is_xdist = config.pluginmanager.hasplugin("xdist")
-    if is_xdist:
-        _xdist.setup_session(config)
-
+    is_xdist_worker = is_xdist and _xdist._is_worker(config)
     plugin = Plugin(
         config=mpl_config,
         diff_dir=diff_dir,
         rootpath=Path(config.rootpath),
         update_snapshots=bool(config.option.update_snapshots),
-        is_xdist_worker=is_xdist and _xdist._is_worker(config),
+        is_xdist_worker=is_xdist_worker,
     )
     config.pluginmanager.register(plugin, name="syrupy_matplotlib_plugin")
 
     _warn_if_png_ignored(config)
 
-    if is_xdist:
+    if is_xdist and not is_xdist_worker:
         config.pluginmanager.register(
-            _xdist.XdistCoordinator(), name="syrupy_matplotlib_xdist"
+            _xdist.XdistCoordinator(plugin.collector), name="syrupy_matplotlib_xdist"
         )
 
 
@@ -522,7 +505,6 @@ class Plugin:
         """
         if self._is_xdist_worker or session.config.option.collectonly:
             return
-        _sweep_stale_fragments(self.diff_dir)
         _clear_previous_artifacts(self.diff_dir)
 
     def pytest_sessionfinish(
@@ -530,11 +512,14 @@ class Plugin:
         session: pytest.Session,
         exitstatus: int,
     ) -> None:
-        """Merge xdist result fragments and write configured reports.
+        """Write the configured reports, or hand a worker's records over.
+
+        On the xdist controller the collector already holds every worker's
+        records: `_xdist.XdistCoordinator` merges them as each worker goes
+        down, before the session finishes.
 
         Skipped under ``--collect-only`` — no comparisons ran, and an empty
-        report (or an empty fragment) would overwrite what the previous real
-        run wrote.
+        report would overwrite what the previous real run wrote.
 
         Args:
             session: The current pytest session.
@@ -544,11 +529,8 @@ class Plugin:
         if session.config.option.collectonly:
             return
         if self._is_xdist_worker:
-            self._save_xdist_results(session.config)
+            _xdist.publish_worker_results(session.config, self.collector)
             return
-
-        # Outside xdist, `merge_worker_fragments` finds nothing and no-ops.
-        self._merge_xdist_results(session.config)
 
         # Only a clean variant-writing run prunes: a failed one may be failing
         # *because* a canonical baseline went missing, and deleting the variant
@@ -631,9 +613,9 @@ class Plugin:
         which is the signal to regenerate.
 
         Silent under xdist: the directories are seen by the workers, this
-        runs on the controller, and the tags are not part of the result
-        fragments — a documented limitation (the README tells users to
-        re-baseline without `-n`), not an oversight.
+        runs on the controller, and the tags are not part of the records the
+        workers hand over — a documented limitation (the README tells users
+        to re-baseline without `-n`), not an oversight.
 
         Args:
             terminalreporter: Pytest's terminal reporter.
@@ -685,57 +667,6 @@ class Plugin:
 
         generate_failed_only_html_report(self.collector, self.diff_dir)
 
-    def _save_xdist_results(self, config: pytest.Config) -> None:
-        """Serialize this worker's results to a JSON fragment file.
-
-        Args:
-            config: The worker's pytest `Config`.
-        """
-        path = (
-            self.diff_dir
-            / f"_results-{_xdist.get_uid(config)}-{_xdist.get_worker_id()}.json"
-        )
-        self.collector.save_worker_json(path)
-
-    def _merge_xdist_results(self, config: pytest.Config) -> None:
-        """Merge result fragments from all workers into the collector.
-
-        Args:
-            config: The controller's pytest `Config`.
-        """
-        merged = _xdist.merge_worker_fragments(self.diff_dir, _xdist.get_uid(config))
-        self.collector.merge_serialized(merged)
-
-
-def _sweep_stale_fragments(diff_dir: Path) -> None:
-    """Delete xdist result fragments a crashed earlier session left behind.
-
-    Fragments are merged and unlinked at session end; any still present at
-    session start are orphans from a controller that never finished. Left
-    alone they accumulate forever and keep `figure-report/` from being
-    pruned as empty.
-
-    Fragment names carry the writing session's UID, but a sweep cannot tell
-    a dead session's UID from a live one's, so it goes by age instead: a
-    second pytest session sharing this rootdir (`tox -p`, two shells, two
-    CI jobs on one checkout) may have workers whose fragments are written
-    and not yet merged, and deleting those would silently drop their
-    results from the other run's report. Workers write at session end and
-    the controller merges seconds later, so anything older than
-    `_STALE_FRAGMENT_AGE_S` belongs to a run that is not coming back.
-
-    Args:
-        diff_dir: The `figure-report/` directory to sweep.
-    """
-    cutoff = time.time() - _STALE_FRAGMENT_AGE_S
-    # The trailing `*` also catches `.json.tmp` files a worker killed
-    # mid-write left behind (fragments are written to a temp name and
-    # renamed into place).
-    for stale in diff_dir.glob("_results-*.json*"):
-        with contextlib.suppress(OSError):
-            if stale.stat().st_mtime < cutoff:
-                stale.unlink()
-
 
 def _clear_previous_artifacts(diff_dir: Path) -> None:
     """Delete the reports and comparison images an earlier session wrote.
@@ -748,11 +679,9 @@ def _clear_previous_artifacts(diff_dir: Path) -> None:
     publishes a report contradicting the run it came from.
 
     Only files this plugin writes are removed: the reports by name, the
-    comparison artifacts by extension. Result fragments are deliberately
-    left to `_sweep_stale_fragments`, which age-gates them because
-    deleting a live session's fragment loses its results for good. A
-    report is a final output that its own session rewrites at session end,
-    so a concurrent run loses nothing here that it will not rewrite.
+    comparison artifacts by extension. A report is a final output that its
+    own session rewrites at session end, so a concurrent run loses nothing
+    here that it will not rewrite.
 
     Args:
         diff_dir: The artifact directory to clear.

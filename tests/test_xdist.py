@@ -2,22 +2,18 @@
 
 from __future__ import annotations
 
-import json
+import warnings
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
 
+from syrupy_matplotlib._reporting import ResultCollector
+from syrupy_matplotlib._reporting import ResultRecord
+from syrupy_matplotlib._types import ImageMatchStatus
 from syrupy_matplotlib._xdist import XdistCoordinator
 from syrupy_matplotlib._xdist import _is_worker
-from syrupy_matplotlib._xdist import get_uid
-from syrupy_matplotlib._xdist import get_worker_id
-from syrupy_matplotlib._xdist import merge_worker_fragments
-from syrupy_matplotlib._xdist import setup_session
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from syrupy_matplotlib._xdist import publish_worker_results
 
 
 def _controller_config() -> MagicMock:
@@ -25,115 +21,76 @@ def _controller_config() -> MagicMock:
     # No workerinput → controller
 
 
-def _worker_config(uid: str) -> MagicMock:
-    cfg = MagicMock(spec=["workerinput"])
-    cfg.workerinput = {"syrupy_matplotlib_uid": uid}
+def _worker_config() -> MagicMock:
+    cfg = MagicMock(spec=["workerinput", "workeroutput"])
+    cfg.workerinput = {}
+    cfg.workeroutput = {}
     return cfg
 
 
-def test_setup_session_controller_generates_uid() -> None:
-    cfg = _controller_config()
-    setup_session(cfg)
-    assert get_uid(cfg) != "main"
-
-
-def test_setup_session_worker_reads_workerinput() -> None:
-    cfg = _worker_config("abc123")
-    setup_session(cfg)
-    assert get_uid(cfg) == "abc123"
-
-
-def test_get_uid_defaults_to_main() -> None:
-    cfg = MagicMock(spec=[])
-    assert get_uid(cfg) == "main"
+def _down_node(worker_id: str, **attrs: object) -> SimpleNamespace:
+    """Mimic the parts of an xdist `WorkerController` the coordinator reads."""
+    return SimpleNamespace(gateway=SimpleNamespace(id=worker_id), **attrs)
 
 
 def test_is_worker_detects_workerinput() -> None:
-    assert _is_worker(_worker_config("x")) is True
+    assert _is_worker(_worker_config()) is True
     assert _is_worker(_controller_config()) is False
 
 
-def test_worker_id_reads_env(monkeypatch) -> None:
-    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw2")
-    assert get_worker_id() == "gw2"
+def test_coordinator_merges_published_records() -> None:
+    """What a worker publishes lands in the controller's collector.
 
-
-def test_worker_id_default(monkeypatch) -> None:
-    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
-    assert get_worker_id() == "main"
-
-
-def test_coordinator_populates_workerinput() -> None:
-    node = SimpleNamespace(
-        workerinput={},
-        config=SimpleNamespace(_syrupy_matplotlib_uid="abc"),
-    )
-    XdistCoordinator().pytest_configure_node(node)
-    assert node.workerinput["syrupy_matplotlib_uid"] == "abc"
-
-
-def test_merge_worker_fragments_combines_and_deletes(tmp_path: Path) -> None:
-    uid = "u1"
-    (tmp_path / f"_results-{uid}-gw0.json").write_text(
-        json.dumps({"a": {"test_name": "a"}})
-    )
-    (tmp_path / f"_results-{uid}-gw1.json").write_text(
-        json.dumps({"b": {"test_name": "b"}})
-    )
-
-    merged = merge_worker_fragments(tmp_path, uid)
-    assert set(merged) == {"a", "b"}
-    # Fragments cleaned up
-    assert not any(tmp_path.glob(f"_results-{uid}-*.json"))
-
-
-def test_merge_worker_fragments_empty(tmp_path: Path) -> None:
-    assert merge_worker_fragments(tmp_path, "nonexistent") == {}
-
-
-def test_merge_worker_fragments_skips_unreadable_fragment(tmp_path: Path) -> None:
-    """A truncated fragment is discarded with a warning, not an exception.
-
-    Raising here would surface as an INTERNALERROR at session finish and lose
-    every worker's results instead of one's.
+    A worker interrupted by Ctrl-C is reported down twice — cleanly, then
+    with an error — and must not be taken for one that died.
     """
-    uid = "u1"
-    (tmp_path / f"_results-{uid}-gw0.json").write_text(
-        json.dumps({"a": {"test_name": "a"}})
-    )
-    corrupt = tmp_path / f"_results-{uid}-gw1.json"
-    corrupt.write_text('{"b": {"test_na')
+    worker = ResultCollector()
+    worker.record(ResultRecord("t::a", ImageMatchStatus.MATCH.value, tolerance=0.5))
+    config = _worker_config()
+    publish_worker_results(config, worker)
+    controller = ResultCollector()
+    coordinator = XdistCoordinator(controller)
+    node = _down_node("gw0", workeroutput=config.workeroutput)
 
-    with pytest.warns(UserWarning, match="unreadable xdist result fragment"):
-        merged = merge_worker_fragments(tmp_path, uid)
+    coordinator.pytest_testnodedown(node)
+    coordinator.pytest_testnodedown(node)
 
-    assert set(merged) == {"a"}
-    # Both fragments are gone — the corrupt one must not linger and warn again.
-    assert not any(tmp_path.glob(f"_results-{uid}-*.json"))
-
-
-def test_merge_worker_fragments_warns_on_interrupted_write(tmp_path: Path) -> None:
-    """A worker killed between writing and renaming its fragment is reported.
-
-    Only the `.json.tmp` exists then, which the `*.json` glob cannot match;
-    without its own pass that worker's results would vanish silently.
-    """
-    uid = "u1"
-    (tmp_path / f"_results-{uid}-gw0.json").write_text(
-        json.dumps({"a": {"test_name": "a"}})
-    )
-    (tmp_path / f"_results-{uid}-gw1.json.tmp").write_text('{"b": {"test_na')
-
-    with pytest.warns(UserWarning, match="incomplete xdist result fragment"):
-        merged = merge_worker_fragments(tmp_path, uid)
-
-    assert set(merged) == {"a"}
-    assert not any(tmp_path.glob(f"_results-{uid}-*"))
+    assert controller.records == worker.records
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        coordinator.pytest_sessionfinish()
 
 
-def test_setup_session_controller_has_unique_uid() -> None:
-    cfg1 = _controller_config()
-    cfg2 = _controller_config()
-    setup_session(cfg1)
-    setup_session(cfg2)
-    assert get_uid(cfg1) != get_uid(cfg2)
+def test_coordinator_does_not_lose_worker_without_records() -> None:
+    """A worker that ran no comparison still publishes, and is not lost."""
+    config = _worker_config()
+    publish_worker_results(config, ResultCollector())
+    controller = ResultCollector()
+    coordinator = XdistCoordinator(controller)
+
+    coordinator.pytest_testnodedown(_down_node("gw0", workeroutput=config.workeroutput))
+
+    assert controller.records == []
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        coordinator.pytest_sessionfinish()
+
+
+@pytest.mark.parametrize(
+    "attrs",
+    [
+        # Crashed: xdist never received the worker's "finished" event.
+        {},
+        # Finished without publishing, e.g. its session finish raised first.
+        {"workeroutput": {"exitstatus": 1}},
+    ],
+)
+def test_coordinator_warns_about_worker_that_never_published(
+    attrs: dict[str, object],
+) -> None:
+    coordinator = XdistCoordinator(ResultCollector())
+
+    coordinator.pytest_testnodedown(_down_node("gw3", **attrs))
+
+    with pytest.warns(UserWarning, match="xdist worker gw3 died before handing over"):
+        coordinator.pytest_sessionfinish()

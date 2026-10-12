@@ -7,7 +7,6 @@ during a session and supports xdist serialization.
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -168,8 +167,8 @@ class RunSummary:
 class ResultCollector:
     """Accumulates `ResultRecord` objects during a pytest session.
 
-    Supports xdist by serializing worker results to JSON and merging them on
-    the controller.
+    Supports xdist by serializing worker results and merging them on the
+    controller.
     """
 
     results_root: Path | None
@@ -188,10 +187,10 @@ class ResultCollector:
     variant_dirs_present: set[str]
     """Variant tags seen on disk while rewriting canonical baselines.
 
-    Feeds the "your variants may now be stale" warning. Not serialized into
-    the xdist result fragments, so under `-n` the tags stay in the workers
-    and the warning never fires — a documented limitation of re-baselining
-    under xdist.
+    Feeds the "your variants may now be stale" warning. Not part of the
+    records an xdist worker hands over, so under `-n` the tags stay in the
+    workers and the warning never fires — a documented limitation of
+    re-baselining under xdist.
     """
 
     _records: dict[str, ResultRecord]
@@ -258,7 +257,7 @@ class ResultCollector:
         return {name: rec.to_dict() for name, rec in self._records.items()}
 
     def merge_serialized(self, data: dict[str, Any]) -> None:
-        """Merge results from a worker JSON blob (xdist).
+        """Merge the results an xdist worker serialized.
 
         The `passed` key in each dict is recomputed from `image_status` on
         read, so it's stripped before reconstruction.
@@ -269,20 +268,3 @@ class ResultCollector:
         for name, rec_dict in data.items():
             payload = {k: v for k, v in rec_dict.items() if k != "passed"}
             self._records[name] = ResultRecord(**payload)
-
-    def save_worker_json(self, path: Path) -> None:
-        """Serialize all records to a JSON file (used by xdist workers).
-
-        Written to a sibling temp file and renamed into place, so the
-        controller can never observe a half-written fragment — a worker
-        killed mid-write (OOM, timeout) would otherwise feed truncated JSON
-        into the session-end merge.
-
-        Args:
-            path: Destination path; parent directories are created as needed.
-        """
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        with tmp.open("w") as f:
-            json.dump(self.to_serializable(), f, indent=2)
-        tmp.replace(path)

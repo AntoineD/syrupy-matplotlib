@@ -55,7 +55,7 @@ just test                     # compare against baselines
 
 ### Data flow through a single test
 
-1. **`_plugin.py`** — registers the `snapshot_matplotlib` fixture and a `Plugin` singleton; on session start clears the previous session's reports and images from `figure-report/`, on session finish merges xdist result fragments, then either writes reports or prunes empty `figure-report/` subdirs (whichever applies).
+1. **`_plugin.py`** — registers the `snapshot_matplotlib` fixture and a `Plugin` singleton; on session start clears the previous session's reports and images from `figure-report/`, on session finish either writes reports or prunes empty `figure-report/` subdirs (whichever applies); an xdist worker instead hands its records to the controller, which has merged every worker's by then.
 2. **`_figures.py`** — `save_figure_to_bytes()` serializes the figure to PNG bytes once.
 3. **`_comparison.py`** — `run_comparison()` wraps `matplotlib.testing.compare.compare_images()` and returns an immutable `ImageResult`. Match artifacts are unlinked when no report is requested; the controller prunes empty `figure-report/` subdirs at session end.
 4. **`_reporting.py`** — collects `ResultRecord` objects; `_json_report.py` / `_html_report.py` consume them at session end.
@@ -73,7 +73,7 @@ just test                     # compare against baselines
 | `_extension.py` | `MplFigureExtension` (syrupy `SingleFileSnapshotExtension`); `serialize`, `matches`, `_record` |
 | `_assertion.py` | `MplSnapshotAssertion` — accepts mpl kwargs on `__call__`, stamps state on extension before `matches()` |
 | `_fixture.py` | `snapshot_matplotlib` fixture; deterministic context + auto-discover/auto-assert/auto-close of figures |
-| `_xdist.py` | Workers save JSON result fragments, controller merges at session end |
+| `_xdist.py` | Workers publish their records in xdist's `config.workeroutput`; `XdistCoordinator` merges them on the controller as each worker goes down, and warns at session finish about workers that died without publishing |
 | `_plugin.py` | Hook registration, `Plugin` class, terminal summary, report generation, `figure-report/` housekeeping. The entry-point module: pytest imports it at every startup, so it must stay free of matplotlib/syrupy imports — which is why pure helpers live here rather than in a module that would drag those in |
 | `_reporting.py` | `ResultRecord`, `RunSummary`, `ResultCollector` (xdist-aware) |
 

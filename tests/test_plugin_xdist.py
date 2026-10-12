@@ -20,7 +20,7 @@ XDIST_TEST = textwrap.dedent("""\
 
 @pytest.mark.parametrize("workers", [1, 2, 4])
 def test_xdist_report_merge(pytester: pytest.Pytester, workers: int) -> None:
-    """Workers serialise JSON fragments; controller merges + writes report."""
+    """Workers hand their records to the controller, which writes the report."""
     pytester.makepyfile(test_plots=XDIST_TEST)
     pytester.runpytest("--snapshot-update", "-p", "no:xdist")
 
@@ -92,47 +92,33 @@ def test_no_xdist_plugin_report_path(pytester: pytest.Pytester) -> None:
     assert report.exists()
 
 
-def test_worker_uid_is_set_before_nodes_are_configured(
-    pytester: pytest.Pytester,
-) -> None:
-    """The session UID must exist by the time xdist configures its workers.
+def test_xdist_warns_about_dead_worker(pytester: pytest.Pytester) -> None:
+    """A worker that dies mid-run is reported, not silently dropped.
 
-    xdist calls `pytest_configure_node` from `DSession.pytest_sessionstart`.
-    Deriving the UID in the plugin's own `pytest_sessionstart` only works
-    while xdist keeps that hookimpl `trylast` — flip it and workers fall
-    back to the `"main"` UID while the controller merges on the real one,
-    so every worker's results disappear from the summary and the reports
-    with no error anywhere. Resolving it in `pytest_configure` removes the
-    dependency; this test pins that.
+    Its records die with it, so the summary and the reports miss its
+    comparisons; the warning names the worker they came from.
     """
-    pytester.makepyfile(test_plots=XDIST_TEST)
-    pytester.runpytest("--snapshot-update", "-p", "no:xdist").assert_outcomes(passed=4)
+    pytester.makepyfile(
+        test_plots=textwrap.dedent("""\
+            import os
 
-    # Written only now: `pytest_configure_node` is an xdist hook, and a
-    # conftest declaring it makes the `-p no:xdist` run above fail to load.
-    pytester.makeconftest("""\
-        from pathlib import Path
+            import matplotlib.pyplot as plt
 
-        import pytest
+            def test_a_plot(snapshot_matplotlib):
+                fig, ax = plt.subplots(); ax.plot([1, 2, 3])
+                assert fig == snapshot_matplotlib
 
-        from syrupy_matplotlib import _xdist
+            def test_b_crash():
+                os._exit(1)
+        """)
+    )
+    pytester.runpytest(
+        "-p", "no:xdist", "--snapshot-update", "-k", "test_a_plot"
+    ).assert_outcomes(passed=1, deselected=1)
 
+    result = pytester.runpytest("-n", "1", "--max-worker-restart=0")
 
-        @pytest.hookimpl(trylast=True)
-        def pytest_configure(config):
-            Path(config.rootpath, "at-configure.txt").write_text(
-                _xdist.get_uid(config)
-            )
-
-
-        def pytest_configure_node(node):
-            Path(node.config.rootpath, "at-configure-node.txt").write_text(
-                _xdist.get_uid(node.config)
-            )
-    """)
-    pytester.runpytest("-n", "2").assert_outcomes(passed=4)
-
-    # `trylast` puts this after the plugin's own `pytest_configure`, so a UID
-    # derived any later than that would still read as "main" here.
-    assert (pytester.path / "at-configure.txt").read_text() != "main"
-    assert (pytester.path / "at-configure-node.txt").read_text() != "main"
+    result.assert_outcomes(passed=1, failed=1)
+    result.stdout.fnmatch_lines([
+        "*xdist worker gw0 died before handing over its results*"
+    ])
